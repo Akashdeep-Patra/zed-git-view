@@ -8,6 +8,17 @@ Each `v*` release syncs the GitHub release notes into this file.
 
 <!-- releases:start -->
 
+## [v0.1.8] - 2026-02-17
+
+Source: [GitHub Release](https://github.com/Akashdeep-Patra/zed-git-view/releases/tag/v0.1.8)
+
+## Changelog
+### New Features
+* 9552d1afb4e903f27a77b1391b29d57b4edb3081: feat: add global zed integration manager (@Akashdeep-Patra)
+### Documentation
+* 10e3b12ee5f43da4941c642ec40ea85625f4c78f: docs: sync changelog for v0.1.6 (@github-actions[bot])
+* 605a2c4409d2cf572ec3b684d933c042176ffd2f: docs: sync changelog for v0.1.7 (@github-actions[bot])
+
 ## [v0.1.7] - 2026-02-17
 
 Source: [GitHub Release](https://github.com/Akashdeep-Patra/zed-git-view/releases/tag/v0.1.7)
