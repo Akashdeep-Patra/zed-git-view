@@ -8,6 +8,14 @@ Each `v*` release syncs the GitHub release notes into this file.
 
 <!-- releases:start -->
 
+## [v0.1.7] - 2026-02-17
+
+Source: [GitHub Release](https://github.com/Akashdeep-Patra/zed-git-view/releases/tag/v0.1.7)
+
+## Changelog
+### Documentation
+* 6b8edc4af697a77d1f92e3bef99ae1982f238a48: docs: sync changelog for v0.1.4 (@github-actions[bot])
+
 ## [v0.1.6] - 2026-02-17
 
 Source: [GitHub Release](https://github.com/Akashdeep-Patra/zed-git-view/releases/tag/v0.1.6)
