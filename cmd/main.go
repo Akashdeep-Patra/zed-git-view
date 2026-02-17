@@ -2,10 +2,13 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
 	"runtime/debug"
+	"strings"
 	"time"
 
 	"github.com/Akashdeep-Patra/zed-git-view/internal/app"
@@ -85,10 +88,289 @@ a single TUI powered by Bubbletea.`,
 
 	rootCmd.AddCommand(buildVersionCmd())
 	rootCmd.AddCommand(buildCompletionCmd())
+	rootCmd.AddCommand(buildZedCmd())
 
 	rootCmd.Flags().StringP("path", "p", ".", "Path to the git repository")
 
 	return rootCmd
+}
+
+type zedTask struct {
+	Label               string            `json:"label"`
+	Command             string            `json:"command"`
+	Args                []string          `json:"args,omitempty"`
+	Env                 map[string]string `json:"env,omitempty"`
+	Cwd                 string            `json:"cwd,omitempty"`
+	UseNewTerminal      bool              `json:"use_new_terminal,omitempty"`
+	AllowConcurrentRuns bool              `json:"allow_concurrent_runs,omitempty"`
+	Reveal              string            `json:"reveal,omitempty"`
+	Hide                string            `json:"hide,omitempty"`
+	Shell               string            `json:"shell,omitempty"`
+	ShowSummary         bool              `json:"show_summary,omitempty"`
+	ShowCommand         bool              `json:"show_command,omitempty"`
+}
+
+const zedLabelPrefix = "zgv:"
+
+func buildZedCmd() *cobra.Command {
+	zedCmd := &cobra.Command{
+		Use:   "zed",
+		Short: "Manage Zed IDE integration",
+		Long: `Manage global Zed tasks for zgv.
+
+Examples:
+  zgv zed status
+  zgv zed install
+  zgv zed uninstall`,
+	}
+
+	zedCmd.AddCommand(buildZedInstallCmd())
+	zedCmd.AddCommand(buildZedUninstallCmd())
+	zedCmd.AddCommand(buildZedStatusCmd())
+
+	return zedCmd
+}
+
+func buildZedInstallCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "install",
+		Short: "Install global Zed tasks for zgv",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			cfgDir, err := zedConfigDir()
+			if err != nil {
+				return err
+			}
+			tasksPath := filepath.Join(cfgDir, "tasks.json")
+
+			existing, err := readZedTasks(tasksPath)
+			if err != nil {
+				return err
+			}
+
+			merged := mergeZedTasks(existing, defaultZedTasks())
+			if err := writeZedTasks(tasksPath, merged); err != nil {
+				return err
+			}
+
+			fmt.Printf("Installed zgv Zed integration at %s\n", tasksPath)
+			fmt.Println("Open Zed and run: task: spawn -> zgv:*")
+			return nil
+		},
+	}
+}
+
+func buildZedUninstallCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "uninstall",
+		Short: "Remove global Zed tasks managed by zgv",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			cfgDir, err := zedConfigDir()
+			if err != nil {
+				return err
+			}
+			tasksPath := filepath.Join(cfgDir, "tasks.json")
+
+			existing, err := readZedTasks(tasksPath)
+			if err != nil {
+				return err
+			}
+			cleaned := removeManagedZedTasks(existing)
+
+			if err := writeZedTasks(tasksPath, cleaned); err != nil {
+				return err
+			}
+			fmt.Printf("Removed zgv Zed integration from %s\n", tasksPath)
+			return nil
+		},
+	}
+}
+
+func buildZedStatusCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "status",
+		Short: "Show global Zed integration status",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			cfgDir, err := zedConfigDir()
+			if err != nil {
+				return err
+			}
+			tasksPath := filepath.Join(cfgDir, "tasks.json")
+
+			existing, err := readZedTasks(tasksPath)
+			if err != nil {
+				return err
+			}
+
+			var labels []string
+			for _, t := range existing {
+				if strings.HasPrefix(t.Label, zedLabelPrefix) {
+					labels = append(labels, t.Label)
+				}
+			}
+
+			fmt.Printf("Zed tasks file: %s\n", tasksPath)
+			if len(labels) == 0 {
+				fmt.Println("zgv integration: not installed")
+				return nil
+			}
+
+			fmt.Printf("zgv integration: installed (%d task(s))\n", len(labels))
+			for _, label := range labels {
+				fmt.Printf("  - %s\n", label)
+			}
+			return nil
+		},
+	}
+}
+
+func zedConfigDir() (string, error) {
+	if override := strings.TrimSpace(os.Getenv("ZGV_ZED_CONFIG_DIR")); override != "" {
+		return override, nil
+	}
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("resolve user home dir: %w", err)
+	}
+
+	xdg := strings.TrimSpace(os.Getenv("XDG_CONFIG_HOME"))
+	if xdg != "" {
+		return filepath.Join(xdg, "zed"), nil
+	}
+
+	return filepath.Join(home, ".config", "zed"), nil
+}
+
+func readZedTasks(path string) ([]zedTask, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("read zed tasks file %s: %w", path, err)
+	}
+
+	var tasks []zedTask
+	if err := json.Unmarshal(data, &tasks); err != nil {
+		return nil, fmt.Errorf("parse zed tasks file %s: %w", path, err)
+	}
+	return tasks, nil
+}
+
+func writeZedTasks(path string, tasks []zedTask) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("create zed config dir: %w", err)
+	}
+
+	data, err := json.MarshalIndent(tasks, "", "  ")
+	if err != nil {
+		return fmt.Errorf("serialize zed tasks: %w", err)
+	}
+	data = append(data, '\n')
+
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		return fmt.Errorf("write zed tasks file %s: %w", path, err)
+	}
+	return nil
+}
+
+func mergeZedTasks(existing, managed []zedTask) []zedTask {
+	cleaned := removeManagedZedTasks(existing)
+	return append(cleaned, managed...)
+}
+
+func removeManagedZedTasks(tasks []zedTask) []zedTask {
+	out := make([]zedTask, 0, len(tasks))
+	for _, t := range tasks {
+		if strings.HasPrefix(t.Label, zedLabelPrefix) {
+			continue
+		}
+		out = append(out, t)
+	}
+	return out
+}
+
+func defaultZedTasks() []zedTask {
+	return []zedTask{
+		{
+			Label:               "zgv: open (current worktree)",
+			Command:             "zgv",
+			Args:                []string{"--path", "$ZED_WORKTREE_ROOT"},
+			Cwd:                 "$ZED_WORKTREE_ROOT",
+			UseNewTerminal:      true,
+			AllowConcurrentRuns: false,
+			Reveal:              "always",
+			Hide:                "never",
+			Shell:               "system",
+			ShowSummary:         true,
+			ShowCommand:         true,
+		},
+		{
+			Label:               "zgv: dev hot reload",
+			Command:             "task",
+			Args:                []string{"dev"},
+			Cwd:                 "$ZED_WORKTREE_ROOT",
+			UseNewTerminal:      true,
+			AllowConcurrentRuns: false,
+			Reveal:              "always",
+			Hide:                "never",
+			Shell:               "system",
+			ShowSummary:         true,
+			ShowCommand:         true,
+		},
+		{
+			Label:               "zgv: check (fmt+vet+lint+test)",
+			Command:             "task",
+			Args:                []string{"check"},
+			Cwd:                 "$ZED_WORKTREE_ROOT",
+			UseNewTerminal:      true,
+			AllowConcurrentRuns: false,
+			Reveal:              "always",
+			Hide:                "never",
+			Shell:               "system",
+			ShowSummary:         true,
+			ShowCommand:         true,
+		},
+		{
+			Label:               "zgv: release patch",
+			Command:             "task",
+			Args:                []string{"release", "--", "patch"},
+			Cwd:                 "$ZED_WORKTREE_ROOT",
+			UseNewTerminal:      true,
+			AllowConcurrentRuns: false,
+			Reveal:              "always",
+			Hide:                "never",
+			Shell:               "system",
+			ShowSummary:         true,
+			ShowCommand:         true,
+		},
+		{
+			Label:               "zgv: release minor",
+			Command:             "task",
+			Args:                []string{"release", "--", "minor"},
+			Cwd:                 "$ZED_WORKTREE_ROOT",
+			UseNewTerminal:      true,
+			AllowConcurrentRuns: false,
+			Reveal:              "always",
+			Hide:                "never",
+			Shell:               "system",
+			ShowSummary:         true,
+			ShowCommand:         true,
+		},
+		{
+			Label:               "zgv: release major",
+			Command:             "task",
+			Args:                []string{"release", "--", "major"},
+			Cwd:                 "$ZED_WORKTREE_ROOT",
+			UseNewTerminal:      true,
+			AllowConcurrentRuns: false,
+			Reveal:              "always",
+			Hide:                "never",
+			Shell:               "system",
+			ShowSummary:         true,
+			ShowCommand:         true,
+		},
+	}
 }
 
 // buildVersionCmd creates the `zgv version` subcommand supporting --json.

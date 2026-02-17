@@ -140,18 +140,31 @@ zgv completion bash   # also: zsh, fish, powershell
 
 ## Zed IDE Integration
 
-This project includes workspace-native Zed tasks in `.zed/tasks.json`.
+zgv can install global Zed tasks automatically.
 
-### Run zgv from Zed automatically
+### Install integration (one-time)
 
-1. Open this repository in Zed.
+```bash
+zgv zed install
+```
+
+This writes global tasks to Zed's tasks file (default:
+`~/.config/zed/tasks.json`, or `$XDG_CONFIG_HOME/zed/tasks.json`).
+
+Use:
+
+```bash
+zgv zed status
+zgv zed uninstall
+```
+
+### Run zgv from Zed
+
+1. Open any project in Zed.
 2. Open command palette and run `task: spawn`.
-3. Run one of:
-   - `zgv: open (current worktree)`
-   - `zgv: dev hot reload`
-   - `zgv: check (fmt+vet+lint+test)`
+3. Run one of the `zgv:*` tasks.
 
-You can also bind a shortcut in your Zed keymap to run tasks directly:
+Optional keybinding:
 
 ```json
 {
@@ -166,8 +179,7 @@ You can also bind a shortcut in your Zed keymap to run tasks directly:
 
 - `task dev` uses `watchexec` to restart `go run ./cmd` when `.go` files change.
 - During runtime, `zgv` auto-refreshes from `.git` state changes via `fsnotify`.
-- For best behavior in monorepos, use `zgv: open (current worktree)` so the repo
-  path is always explicit (`$ZED_WORKTREE_ROOT`).
+- For best behavior in monorepos, use `zgv: open (current worktree)`.
 
 ## Configuration
 

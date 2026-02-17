@@ -148,8 +148,8 @@ brews:
     caveats: |
       Shell completions have been installed.
 
-      To use zgv inside Zed IDE, open the integrated terminal and run:
-        zgv
+      To enable global Zed integration tasks:
+        zgv zed install
     skip_upload: auto
 
 nfpms:

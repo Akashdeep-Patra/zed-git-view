@@ -35,14 +35,13 @@ task run -- --path /some/repo
 
 ### Running from Zed
 
-This repository includes project-level Zed tasks in `.zed/tasks.json`.
+Install global Zed integration once:
 
-1. Open this repository in Zed.
-2. Run `task: spawn` from the command palette.
-3. Use:
-   - `zgv: open (current worktree)` to launch zgv for this project
-   - `zgv: dev hot reload` for iterative development
-   - `zgv: check (fmt+vet+lint+test)` before opening a PR
+```bash
+zgv zed install
+```
+
+Then in Zed command palette, run `task: spawn` and pick `zgv:*` tasks.
 
 ## Development Workflow
 
