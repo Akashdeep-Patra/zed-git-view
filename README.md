@@ -244,11 +244,10 @@ git push origin vX.Y.Z
 
 | Workflow | Trigger | Jobs |
 |----------|---------|------|
-| **CI** | push/PR to `main` | lint, test (3 OS), vet, build (6 platforms) |
+| **CI** | `v*` tag push | lint, test (3 OS), vet, build (6 platforms) |
 | **Release** | `v*` tag push | goreleaser, sign, SBOM, homebrew, packages |
 
-GitHub Actions handles everything automatically. PRs cannot merge unless all
-CI checks pass (configure branch protection rules for enforcement).
+GitHub Actions handles release-tag automation end to end.
 
 ## Project Structure
 
@@ -265,7 +264,7 @@ internal/
     components/          Shared components (tabs, statusbar, help, dialog, side-by-side diff)
     views/               One file per tab (status, log, diff, branches, stash, remotes, rebase, conflicts, worktrees, bisect)
 .github/workflows/
-  ci.yml                 CI: lint, test, vet, build on every push/PR
+  ci.yml                 CI: lint, test, vet, build on release tags
   release.yml            Release: goreleaser on tag push
 .goreleaser.yml          Multi-platform build + package + publish config
 Taskfile.yml             Development task runner (build, test, lint, tag, etc.)

@@ -2,9 +2,8 @@ name: CI
 
 on:
   push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+    tags:
+      - "v*"
 
 permissions:
   contents: read
@@ -114,7 +113,7 @@ jobs:
           path: dist/
           retention-days: 7
 
-  # Gate — all checks must pass before merging.
+  # Gate — all checks must pass for tag-triggered CI runs.
   ci-ok:
     name: CI OK
     if: always()
