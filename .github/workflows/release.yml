@@ -80,8 +80,12 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           VERSION="${TAG#v}"
+          # Clone the tap repo and update only the zgv row in the formula table.
+          git clone "https://x-access-token:${TAP_TOKEN}@github.com/Akashdeep-Patra/homebrew-tap.git" tap-repo
+          cd tap-repo
 
-          cat > README.md << 'HEADER'
+          if [ ! -f README.md ]; then
+            cat > README.md <<'EOF'
           # Homebrew Tap — Akashdeep-Patra
 
           Homebrew formulae for tools by [@Akashdeep-Patra](https://github.com/Akashdeep-Patra).
@@ -90,39 +94,54 @@ jobs:
 
           | Formula | Description | Version |
           |---------|-------------|---------|
-          HEADER
+          EOF
+          fi
 
-          echo "| [zgv](https://github.com/Akashdeep-Patra/zed-git-view) | A modern TUI Git client for Zed IDE | \`${VERSION}\` |" >> README.md
+          export VERSION
+          python3 <<'PY'
+          import os
+          from pathlib import Path
 
-          cat >> README.md << 'FOOTER'
+          readme = Path("README.md")
+          lines = readme.read_text(encoding="utf-8").splitlines()
 
-          ## Usage
+          header = "| Formula | Description | Version |"
+          sep_prefix = "|---------|"
+          new_row = (
+              f"| [zgv](https://github.com/Akashdeep-Patra/zed-git-view) "
+              f"| A modern TUI Git client for Zed IDE | `{os.environ['VERSION']}` |"
+          )
 
-          ```bash
-          # Add this tap
-          brew tap Akashdeep-Patra/tap
+          try:
+              h = next(i for i, line in enumerate(lines) if line.strip() == header)
+              s = h + 1
+              if s >= len(lines) or not lines[s].strip().startswith(sep_prefix):
+                  lines.insert(s, "|---------|-------------|---------|")
+              data_start = s + 1
 
-          # Install a formula
-          brew install Akashdeep-Patra/tap/zgv
+              end = data_start
+              while end < len(lines) and lines[end].strip().startswith("|"):
+                  end += 1
 
-          # Or shorthand after tapping
-          brew install zgv
-          ```
+              rows = [r for r in lines[data_start:end] if "[zgv](" not in r]
+              rows.append(new_row)
+              lines[data_start:end] = rows
+          except StopIteration:
+              if lines and lines[-1].strip() != "":
+                  lines.append("")
+              lines.extend(
+                  [
+                      "## Formulae",
+                      "",
+                      "| Formula | Description | Version |",
+                      "|---------|-------------|---------|",
+                      new_row,
+                  ]
+              )
 
-          ## Updating
+          readme.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+          PY
 
-          ```bash
-          brew update
-          brew upgrade zgv
-          ```
-
-          Formulae are automatically updated on every new [release](https://github.com/Akashdeep-Patra/zed-git-view/releases) via [GoReleaser](https://goreleaser.com/).
-          FOOTER
-
-          # Clone the tap repo, commit the README, and push
-          git clone "https://x-access-token:${TAP_TOKEN}@github.com/Akashdeep-Patra/homebrew-tap.git" tap-repo
-          cp README.md tap-repo/README.md
-          cd tap-repo
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add README.md
