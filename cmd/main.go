@@ -89,6 +89,7 @@ a single TUI powered by Bubbletea.`,
 	rootCmd.AddCommand(buildVersionCmd())
 	rootCmd.AddCommand(buildCompletionCmd())
 	rootCmd.AddCommand(buildZedCmd())
+	rootCmd.AddCommand(buildCodeCmd())
 
 	rootCmd.Flags().StringP("path", "p", ".", "Path to the git repository")
 
@@ -369,6 +370,270 @@ func defaultZedTasks() []zedTask {
 			Shell:               "system",
 			ShowSummary:         true,
 			ShowCommand:         true,
+		},
+	}
+}
+
+type vscodeTasksFile struct {
+	Version string           `json:"version"`
+	Tasks   []map[string]any `json:"tasks"`
+}
+
+const codeLabelPrefix = "zgv:"
+
+func buildCodeCmd() *cobra.Command {
+	var workspaceDir string
+
+	codeCmd := &cobra.Command{
+		Use:   "code",
+		Short: "Manage VS Code/Cursor integration",
+		Long: `Manage workspace VS Code/Cursor tasks for zgv.
+
+Examples:
+  zgv code status
+  zgv code install
+  zgv code uninstall`,
+	}
+
+	codeCmd.PersistentFlags().StringVarP(&workspaceDir, "workspace", "w", ".", "Path to workspace root")
+	codeCmd.AddCommand(buildCodeInstallCmd(&workspaceDir))
+	codeCmd.AddCommand(buildCodeUninstallCmd(&workspaceDir))
+	codeCmd.AddCommand(buildCodeStatusCmd(&workspaceDir))
+
+	return codeCmd
+}
+
+func buildCodeInstallCmd(workspaceDir *string) *cobra.Command {
+	return &cobra.Command{
+		Use:   "install",
+		Short: "Install VS Code/Cursor tasks for zgv in this workspace",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			root, err := resolveWorkspaceDir(*workspaceDir)
+			if err != nil {
+				return err
+			}
+
+			tasksPath := filepath.Join(root, ".vscode", "tasks.json")
+			file, err := readCodeTasks(tasksPath)
+			if err != nil {
+				return err
+			}
+
+			file.Tasks = mergeCodeTasks(file.Tasks, defaultCodeTasks())
+			if file.Version == "" {
+				file.Version = "2.0.0"
+			}
+
+			if err := writeCodeTasks(tasksPath, file); err != nil {
+				return err
+			}
+
+			fmt.Printf("Installed VS Code/Cursor integration at %s\n", tasksPath)
+			fmt.Println("Open command palette and run: Tasks: Run Task -> zgv:*")
+			return nil
+		},
+	}
+}
+
+func buildCodeUninstallCmd(workspaceDir *string) *cobra.Command {
+	return &cobra.Command{
+		Use:   "uninstall",
+		Short: "Remove VS Code/Cursor tasks managed by zgv from this workspace",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			root, err := resolveWorkspaceDir(*workspaceDir)
+			if err != nil {
+				return err
+			}
+
+			tasksPath := filepath.Join(root, ".vscode", "tasks.json")
+			file, err := readCodeTasks(tasksPath)
+			if err != nil {
+				return err
+			}
+
+			file.Tasks = removeManagedCodeTasks(file.Tasks)
+			if file.Version == "" {
+				file.Version = "2.0.0"
+			}
+
+			if err := writeCodeTasks(tasksPath, file); err != nil {
+				return err
+			}
+
+			fmt.Printf("Removed zgv VS Code/Cursor integration from %s\n", tasksPath)
+			return nil
+		},
+	}
+}
+
+func buildCodeStatusCmd(workspaceDir *string) *cobra.Command {
+	return &cobra.Command{
+		Use:   "status",
+		Short: "Show VS Code/Cursor integration status for this workspace",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			root, err := resolveWorkspaceDir(*workspaceDir)
+			if err != nil {
+				return err
+			}
+
+			tasksPath := filepath.Join(root, ".vscode", "tasks.json")
+			file, err := readCodeTasks(tasksPath)
+			if err != nil {
+				return err
+			}
+
+			var labels []string
+			for _, t := range file.Tasks {
+				if label, ok := t["label"].(string); ok && strings.HasPrefix(label, codeLabelPrefix) {
+					labels = append(labels, label)
+				}
+			}
+
+			fmt.Printf("VS Code/Cursor tasks file: %s\n", tasksPath)
+			if len(labels) == 0 {
+				fmt.Println("zgv integration: not installed")
+				return nil
+			}
+
+			fmt.Printf("zgv integration: installed (%d task(s))\n", len(labels))
+			for _, label := range labels {
+				fmt.Printf("  - %s\n", label)
+			}
+			return nil
+		},
+	}
+}
+
+func resolveWorkspaceDir(dir string) (string, error) {
+	root := dir
+	if override := strings.TrimSpace(os.Getenv("ZGV_CODE_WORKSPACE_DIR")); override != "" {
+		root = override
+	}
+	abs, err := filepath.Abs(root)
+	if err != nil {
+		return "", fmt.Errorf("resolve workspace dir: %w", err)
+	}
+	return abs, nil
+}
+
+func readCodeTasks(path string) (vscodeTasksFile, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return vscodeTasksFile{Version: "2.0.0", Tasks: []map[string]any{}}, nil
+		}
+		return vscodeTasksFile{}, fmt.Errorf("read vscode tasks file %s: %w", path, err)
+	}
+
+	var file vscodeTasksFile
+	if err := json.Unmarshal(data, &file); err != nil {
+		return vscodeTasksFile{}, fmt.Errorf("parse vscode tasks file %s: %w", path, err)
+	}
+	if file.Tasks == nil {
+		file.Tasks = []map[string]any{}
+	}
+	if file.Version == "" {
+		file.Version = "2.0.0"
+	}
+	return file, nil
+}
+
+func writeCodeTasks(path string, file vscodeTasksFile) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("create vscode config dir: %w", err)
+	}
+	data, err := json.MarshalIndent(file, "", "  ")
+	if err != nil {
+		return fmt.Errorf("serialize vscode tasks: %w", err)
+	}
+	data = append(data, '\n')
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		return fmt.Errorf("write vscode tasks file %s: %w", path, err)
+	}
+	return nil
+}
+
+func removeManagedCodeTasks(tasks []map[string]any) []map[string]any {
+	out := make([]map[string]any, 0, len(tasks))
+	for _, t := range tasks {
+		label, _ := t["label"].(string)
+		if strings.HasPrefix(label, codeLabelPrefix) {
+			continue
+		}
+		out = append(out, t)
+	}
+	return out
+}
+
+func mergeCodeTasks(existing, managed []map[string]any) []map[string]any {
+	cleaned := removeManagedCodeTasks(existing)
+	return append(cleaned, managed...)
+}
+
+func defaultCodeTasks() []map[string]any {
+	return []map[string]any{
+		{
+			"label":          "zgv: open",
+			"type":           "shell",
+			"command":        "zgv",
+			"args":           []string{"--path", "${workspaceFolder}"},
+			"problemMatcher": []string{},
+		},
+		{
+			"label":          "zgv: dev",
+			"type":           "shell",
+			"command":        "task",
+			"args":           []string{"dev"},
+			"problemMatcher": []string{},
+		},
+		{
+			"label":          "zgv: check",
+			"type":           "shell",
+			"command":        "task",
+			"args":           []string{"check"},
+			"problemMatcher": []string{},
+		},
+		{
+			"label":          "zgv: release patch",
+			"type":           "shell",
+			"command":        "task",
+			"args":           []string{"release", "--", "patch"},
+			"problemMatcher": []string{},
+		},
+		{
+			"label":          "zgv: release minor",
+			"type":           "shell",
+			"command":        "task",
+			"args":           []string{"release", "--", "minor"},
+			"problemMatcher": []string{},
+		},
+		{
+			"label":          "zgv: release major",
+			"type":           "shell",
+			"command":        "task",
+			"args":           []string{"release", "--", "major"},
+			"problemMatcher": []string{},
+		},
+		{
+			"label":          "zgv: auto-open (git repos)",
+			"type":           "shell",
+			"command":        "if git -C \"${workspaceFolder}\" rev-parse --is-inside-work-tree >/dev/null 2>&1; then zgv --path \"${workspaceFolder}\"; fi",
+			"problemMatcher": []string{},
+			"runOptions": map[string]any{
+				"runOn": "folderOpen",
+			},
+			"presentation": map[string]any{
+				"reveal": "never",
+				"panel":  "dedicated",
+				"focus":  false,
+				"clear":  false,
+			},
+			"options": map[string]any{
+				"shell": map[string]any{
+					"executable": "bash",
+					"args":       []string{"-lc"},
+				},
+			},
 		},
 	}
 }

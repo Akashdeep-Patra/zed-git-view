@@ -181,6 +181,35 @@ Optional keybinding:
 - During runtime, `zgv` auto-refreshes from `.git` state changes via `fsnotify`.
 - For best behavior in monorepos, use `zgv: open (current worktree)`.
 
+## VS Code / Cursor Integration
+
+zgv can install workspace tasks for VS Code and Cursor automatically.
+
+### Install integration (per workspace)
+
+```bash
+zgv code install
+```
+
+Use:
+
+```bash
+zgv code status
+zgv code uninstall
+```
+
+By default this manages `.vscode/tasks.json` in the current directory.
+
+### Auto-open behavior
+
+`zgv code install` includes an auto-run task (`runOn: folderOpen`) that:
+
+1. checks whether the opened folder is a Git repository, and
+2. launches `zgv` automatically only for Git workspaces.
+
+VS Code/Cursor may ask you to approve auto-run tasks the first time for
+workspace trust/security.
+
 ## Configuration
 
 Configuration file: `~/.config/zgv/config.yaml`

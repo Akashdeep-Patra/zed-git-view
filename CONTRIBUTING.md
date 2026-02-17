@@ -43,6 +43,17 @@ zgv zed install
 
 Then in Zed command palette, run `task: spawn` and pick `zgv:*` tasks.
 
+### Running from VS Code / Cursor
+
+Install workspace integration:
+
+```bash
+zgv code install
+```
+
+This writes managed `zgv:*` tasks into `.vscode/tasks.json`, including an
+auto-open-on-folder task for Git repositories.
+
 ## Development Workflow
 
 ### Branch naming
