@@ -21,6 +21,7 @@
 package watcher
 
 import (
+	"math/rand/v2"
 	"os"
 	"path/filepath"
 	"strings"
@@ -90,6 +91,12 @@ func Watch(_, gitDir string, debounce time.Duration) (<-chan Event, func(), erro
 	ch := make(chan Event, 1)
 	done := make(chan struct{})
 
+	// jitterRange adds randomness to the debounce to prevent the
+	// "thundering herd" problem when multiple zgv instances watch
+	// the same .git directory. Each instance fires at a slightly
+	// different time, spreading the git subprocess load.
+	jitterRange := debounce / 2 // 0 to 50% of debounce
+
 	go func() {
 		defer close(ch)
 		var timer *time.Timer
@@ -103,10 +110,13 @@ func Watch(_, gitDir string, debounce time.Duration) (<-chan Event, func(), erro
 				if shouldIgnore(ev.Name) {
 					continue
 				}
+				// Add random jitter to the debounce window.
+				jitter := time.Duration(rand.Int64N(int64(jitterRange)))
+				d := debounce + jitter
 				if timer == nil {
-					timer = time.NewTimer(debounce)
+					timer = time.NewTimer(d)
 				} else {
-					timer.Reset(debounce)
+					timer.Reset(d)
 				}
 			case <-timerChan(timer):
 				timer = nil

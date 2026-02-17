@@ -35,20 +35,24 @@ type KeyMap struct {
 }
 
 // DefaultKeyMap returns the default keybindings.
-// Tab shortcuts use Alt+key so they never conflict with view-level keys.
+//
+// Tab switching uses ←/→ arrow keys (and h/l for vim users).
+// The Tab key is deliberately NOT used here so it can fall through to views
+// for pane-focus switching (e.g. file list ↔ diff preview in StatusView).
+// Alt+key shortcuts allow direct jumps to specific tabs.
 func DefaultKeyMap() KeyMap {
 	return KeyMap{
 		Quit:     key.NewBinding(key.WithKeys("q", "ctrl+c"), key.WithHelp("q", "quit")),
 		Help:     key.NewBinding(key.WithKeys("?"), key.WithHelp("?", "help")),
-		NextTab:  key.NewBinding(key.WithKeys("tab"), key.WithHelp("tab", "next tab")),
-		PrevTab:  key.NewBinding(key.WithKeys("shift+tab"), key.WithHelp("shift+tab", "prev tab")),
+		NextTab:  key.NewBinding(key.WithKeys("right", "l"), key.WithHelp("→", "next tab")),
+		PrevTab:  key.NewBinding(key.WithKeys("left", "h"), key.WithHelp("←", "prev tab")),
 		Refresh:  key.NewBinding(key.WithKeys("r", "ctrl+r"), key.WithHelp("r", "refresh")),
-		Up:       key.NewBinding(key.WithKeys("up", "k"), key.WithHelp("k/↑", "up")),
-		Down:     key.NewBinding(key.WithKeys("down", "j"), key.WithHelp("j/↓", "down")),
+		Up:       key.NewBinding(key.WithKeys("up"), key.WithHelp("↑", "up")),
+		Down:     key.NewBinding(key.WithKeys("down"), key.WithHelp("↓", "down")),
 		PageUp:   key.NewBinding(key.WithKeys("pgup", "ctrl+u"), key.WithHelp("pgup", "page up")),
 		PageDown: key.NewBinding(key.WithKeys("pgdown", "ctrl+d"), key.WithHelp("pgdn", "page down")),
-		Home:     key.NewBinding(key.WithKeys("home", "g"), key.WithHelp("g", "top")),
-		End:      key.NewBinding(key.WithKeys("end", "G"), key.WithHelp("G", "bottom")),
+		Home:     key.NewBinding(key.WithKeys("home"), key.WithHelp("home", "top")),
+		End:      key.NewBinding(key.WithKeys("end"), key.WithHelp("end", "bottom")),
 		Enter:    key.NewBinding(key.WithKeys("enter"), key.WithHelp("enter", "confirm")),
 		Back:     key.NewBinding(key.WithKeys("esc"), key.WithHelp("esc", "back")),
 

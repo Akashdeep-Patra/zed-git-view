@@ -127,12 +127,18 @@ type Styles struct {
 	FileUntracked lipgloss.Style
 
 	// Diff
-	DiffAdded      lipgloss.Style
-	DiffRemoved    lipgloss.Style
-	DiffContext    lipgloss.Style
-	DiffHeader     lipgloss.Style
-	DiffHunkHeader lipgloss.Style
-	DiffLineNum    lipgloss.Style
+	DiffAdded          lipgloss.Style
+	DiffAddedGutter    lipgloss.Style
+	DiffAddedLineNum   lipgloss.Style
+	DiffRemoved        lipgloss.Style
+	DiffRemovedGutter  lipgloss.Style
+	DiffRemovedLineNum lipgloss.Style
+	DiffContext        lipgloss.Style
+	DiffContextLineNum lipgloss.Style
+	DiffHeader         lipgloss.Style
+	DiffHunkHeader     lipgloss.Style
+	DiffLineNum        lipgloss.Style
+	DiffSeparator      lipgloss.Style
 
 	// Commit / refs
 	CommitHash lipgloss.Style
@@ -187,12 +193,28 @@ func NewStyles(t Theme) Styles {
 	s.FileConflict = lipgloss.NewStyle().Foreground(t.Conflict).Bold(true)
 	s.FileUntracked = lipgloss.NewStyle().Foreground(t.Untracked)
 
-	s.DiffAdded = lipgloss.NewStyle().Foreground(t.Added)
-	s.DiffRemoved = lipgloss.NewStyle().Foreground(t.Deleted)
+	// Added lines: green text on a subtle green-tinted background.
+	addedBg := lipgloss.Color("#1a3a2a")
+	addedGutterBg := lipgloss.Color("#264d35")
+	s.DiffAdded = lipgloss.NewStyle().Foreground(t.Added).Background(addedBg)
+	s.DiffAddedGutter = lipgloss.NewStyle().Foreground(t.Added).Background(addedGutterBg).Bold(true)
+	s.DiffAddedLineNum = lipgloss.NewStyle().Foreground(lipgloss.Color("#6dba82")).Background(addedBg)
+
+	// Removed lines: red text on a subtle red-tinted background.
+	removedBg := lipgloss.Color("#3a1a1a")
+	removedGutterBg := lipgloss.Color("#4d2626")
+	s.DiffRemoved = lipgloss.NewStyle().Foreground(t.Deleted).Background(removedBg)
+	s.DiffRemovedGutter = lipgloss.NewStyle().Foreground(t.Deleted).Background(removedGutterBg).Bold(true)
+	s.DiffRemovedLineNum = lipgloss.NewStyle().Foreground(lipgloss.Color("#c76d7e")).Background(removedBg)
+
+	// Context lines: dimmed text, no background.
 	s.DiffContext = lipgloss.NewStyle().Foreground(t.TextMuted)
+	s.DiffContextLineNum = lipgloss.NewStyle().Foreground(t.TextSubtle)
+
 	s.DiffHeader = lipgloss.NewStyle().Foreground(t.Primary).Bold(true)
 	s.DiffHunkHeader = lipgloss.NewStyle().Foreground(t.Secondary).Italic(true)
-	s.DiffLineNum = lipgloss.NewStyle().Foreground(t.TextSubtle).Width(5).Align(lipgloss.Right)
+	s.DiffLineNum = lipgloss.NewStyle().Foreground(t.TextSubtle)
+	s.DiffSeparator = lipgloss.NewStyle().Foreground(t.Border)
 
 	s.CommitHash = lipgloss.NewStyle().Foreground(t.CommitHash)
 	s.CommitMsg = lipgloss.NewStyle().Foreground(t.Text)

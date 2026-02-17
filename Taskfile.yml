@@ -36,9 +36,12 @@ tasks:
       - ./{{.BUILD_DIR}}/{{.BINARY_NAME}} {{.CLI_ARGS}}
 
   dev:
-    desc: Run with go run (faster iteration)
+    desc: Run with hot-reload (rebuilds and restarts on .go file changes)
     cmds:
-      - go run -ldflags="{{.LDFLAGS}}" {{.MAIN_PKG}} {{.CLI_ARGS}}
+      - watchexec -r -e go -- go run {{.MAIN_PKG}}
+    preconditions:
+      - sh: command -v watchexec
+        msg: "watchexec is required: brew install watchexec"
 
   test:
     desc: Run tests with race detector
@@ -114,6 +117,33 @@ tasks:
     desc: Print the current version
     cmds:
       - echo "{{.VERSION}} ({{.COMMIT}})"
+
+  ci:local:
+    desc: Run CI workflow locally using act (requires Docker)
+    cmds:
+      - act push -j vet -W .github/workflows/ci.yml
+      - act push -j test -W .github/workflows/ci.yml
+      - act push -j build --matrix goos:linux --matrix goarch:amd64 -W .github/workflows/ci.yml
+    preconditions:
+      - sh: command -v act
+        msg: "act is required: brew install act"
+      - sh: docker info > /dev/null 2>&1
+        msg: "Docker must be running"
+
+  ci:local:vet:
+    desc: Run just the CI vet job locally
+    cmds:
+      - act push -j vet -W .github/workflows/ci.yml
+
+  ci:local:test:
+    desc: Run just the CI test job locally
+    cmds:
+      - act push -j test -W .github/workflows/ci.yml
+
+  ci:local:build:
+    desc: Run just the CI build job locally (linux/amd64)
+    cmds:
+      - act push -j build --matrix goos:linux --matrix goarch:amd64 -W .github/workflows/ci.yml
 
   tag:
     desc: "Create and push a release tag: task tag -- v0.2.0"

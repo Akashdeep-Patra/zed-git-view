@@ -91,4 +91,10 @@ type View interface {
 	View() string
 	SetSize(width, height int)
 	ShortHelp() []components.HelpEntry
+
+	// InputCapture returns true when the view is in a text-input mode
+	// (e.g. commit message editing) and wants to capture arrow keys,
+	// letters, etc. instead of letting the app handle them for tab
+	// switching.
+	InputCapture() bool
 }

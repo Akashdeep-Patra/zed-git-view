@@ -37,6 +37,54 @@ const (
 
 // ── StatusView ──────────────────────────────────────────────────────────────
 
+// statusCachedStyles holds pre-computed lipgloss styles for the StatusView
+// render path. Created once in the constructor instead of re-allocated on
+// every frame. This reduces GC pressure significantly when multiple
+// instances are running — each render cycle saves ~40 style allocations.
+type statusCachedStyles struct {
+	titlePrimary  lipgloss.Style
+	countMuted    lipgloss.Style
+	focusDot      lipgloss.Style
+	headerBold    lipgloss.Style
+	emptyCenter   lipgloss.Style
+	scrollHint    lipgloss.Style
+	cursorStyle   lipgloss.Style
+	selectedBg    lipgloss.Style
+	pathStyle     lipgloss.Style
+	keyStyle      lipgloss.Style
+	descStyle     lipgloss.Style
+	sepStyle      lipgloss.Style
+	dividerStyle  lipgloss.Style
+	barBgStyle    lipgloss.Style
+	diffTitle     lipgloss.Style
+	diffFocusDot  lipgloss.Style
+	diffEmptyHint lipgloss.Style
+	diffScrollPct lipgloss.Style
+}
+
+func newStatusCachedStyles(t ui.Theme) statusCachedStyles {
+	return statusCachedStyles{
+		titlePrimary:  lipgloss.NewStyle().Foreground(t.Primary).Bold(true),
+		countMuted:    lipgloss.NewStyle().Foreground(t.TextMuted),
+		focusDot:      lipgloss.NewStyle().Foreground(t.Primary).Faint(true),
+		headerBold:    lipgloss.NewStyle().Bold(true),
+		emptyCenter:   lipgloss.NewStyle().Foreground(t.TextMuted),
+		scrollHint:    lipgloss.NewStyle().Foreground(t.TextSubtle),
+		cursorStyle:   lipgloss.NewStyle().Foreground(t.Primary).Bold(true),
+		selectedBg:    lipgloss.NewStyle().Background(t.SurfaceHover),
+		pathStyle:     lipgloss.NewStyle().Foreground(t.Text),
+		keyStyle:      lipgloss.NewStyle().Foreground(t.Primary).Bold(true),
+		descStyle:     lipgloss.NewStyle().Foreground(t.TextMuted),
+		sepStyle:      lipgloss.NewStyle().Foreground(t.Border),
+		dividerStyle:  lipgloss.NewStyle().Foreground(t.Border),
+		barBgStyle:    lipgloss.NewStyle().Foreground(t.TextMuted).Background(t.Surface),
+		diffTitle:     lipgloss.NewStyle().Foreground(t.Primary).Bold(true),
+		diffFocusDot:  lipgloss.NewStyle().Foreground(t.Primary).Faint(true),
+		diffEmptyHint: lipgloss.NewStyle().Foreground(t.TextSubtle),
+		diffScrollPct: lipgloss.NewStyle().Foreground(t.TextSubtle),
+	}
+}
+
 // StatusView is the primary working-tree view.
 //
 // Layout (when diff is visible):
@@ -51,6 +99,7 @@ const (
 type StatusView struct {
 	gitSvc git.Service
 	styles ui.Styles
+	sc     statusCachedStyles // pre-computed render styles
 	width  int
 	height int
 	status *git.StatusResult
@@ -94,6 +143,7 @@ func NewStatusView(gitSvc git.Service, styles ui.Styles) *StatusView {
 	return &StatusView{
 		gitSvc:   gitSvc,
 		styles:   styles,
+		sc:       newStatusCachedStyles(styles.Theme),
 		status:   &git.StatusResult{},
 		diffVP:   viewport.New(0, 0),
 		commitTA: ta,
@@ -254,10 +304,10 @@ func (v *StatusView) updateNormal(msg tea.KeyMsg) (common.View, tea.Cmd) {
 	// If diff pane is focused, handle scroll keys there.
 	if v.focus == focusDiffPane {
 		switch msg.String() {
-		case "j", "down":
+		case "down":
 			v.diffVP.ScrollDown(1)
 			return v, nil
-		case "k", "up":
+		case "up":
 			v.diffVP.ScrollUp(1)
 			return v, nil
 		case "ctrl+d", "pgdown":
@@ -266,10 +316,10 @@ func (v *StatusView) updateNormal(msg tea.KeyMsg) (common.View, tea.Cmd) {
 		case "ctrl+u", "pgup":
 			v.diffVP.HalfPageUp()
 			return v, nil
-		case "g", "home":
+		case "home":
 			v.diffVP.GotoTop()
 			return v, nil
-		case "G", "end":
+		case "end":
 			v.diffVP.GotoBottom()
 			return v, nil
 		case "tab":
@@ -282,20 +332,20 @@ func (v *StatusView) updateNormal(msg tea.KeyMsg) (common.View, tea.Cmd) {
 	}
 
 	switch msg.String() {
-	case "j", "down":
+	case "down":
 		if v.cursor < len(v.items)-1 {
 			v.cursor++
 			return v, v.autoLoadDiff()
 		}
-	case "k", "up":
+	case "up":
 		if v.cursor > 0 {
 			v.cursor--
 			return v, v.autoLoadDiff()
 		}
-	case "g", "home":
+	case "home":
 		v.cursor = 0
 		return v, v.autoLoadDiff()
-	case "G", "end":
+	case "end":
 		if len(v.items) > 0 {
 			v.cursor = len(v.items) - 1
 			return v, v.autoLoadDiff()
@@ -469,8 +519,7 @@ func (v *StatusView) renderFilePane(height int) string {
 	fpw := v.filePaneWidth()
 
 	if v.status.TotalCount() == 0 {
-		empty := lipgloss.NewStyle().
-			Foreground(t.TextMuted).
+		empty := v.sc.emptyCenter.
 			Width(fpw).
 			Height(height).
 			Align(lipgloss.Center, lipgloss.Center).
@@ -480,11 +529,9 @@ func (v *StatusView) renderFilePane(height int) string {
 
 	// ── Title row ────────────────────────────────────────────
 	total := v.status.TotalCount()
-	titleStyle := lipgloss.NewStyle().Foreground(t.Primary).Bold(true)
-	countStyle := lipgloss.NewStyle().Foreground(t.TextMuted)
-	title := titleStyle.Render("Files") + " " + countStyle.Render(fmt.Sprintf("(%d)", total))
+	title := v.sc.titlePrimary.Render("Files") + " " + v.sc.countMuted.Render(fmt.Sprintf("(%d)", total))
 	if v.focus == focusFileList {
-		title += " " + lipgloss.NewStyle().Foreground(t.Primary).Faint(true).Render("●")
+		title += " " + v.sc.focusDot.Render("●")
 	}
 
 	// ── Section definitions ──────────────────────────────────
@@ -550,10 +597,12 @@ func (v *StatusView) renderFilePane(height int) string {
 	}
 
 	// Cache scroll state for mouse hit-testing.
-	// The list area begins at absolute Y = 2 (tab bar) + 1 (title row) = 3.
+	// Y coordinates arrive already adjusted relative to the content area
+	// (app.go subtracts the tab bar height). The list begins after the
+	// file pane title row (1 line).
 	v.lastScrollStart = scrollStart
 	v.lastListH = listH
-	v.lastListYOffset = 3 // tab bar (2) + title row (1)
+	v.lastListYOffset = 1 // title row only (Y is content-relative)
 
 	// ── Render only visible lines ────────────────────────────
 	var buf strings.Builder
@@ -562,8 +611,6 @@ func (v *StatusView) renderFilePane(height int) string {
 	lineIdx := 0
 	itemIdx = 0
 	rendered := 0
-
-	headerStyle := lipgloss.NewStyle().Bold(true)
 
 	for _, sec := range sections {
 		if len(sec.items) == 0 {
@@ -575,7 +622,7 @@ func (v *StatusView) renderFilePane(height int) string {
 			if rendered > 0 {
 				buf.WriteByte('\n')
 			}
-			hdr := headerStyle.Foreground(sec.color).
+			hdr := v.sc.headerBold.Foreground(sec.color).
 				Render(fmt.Sprintf(" %s %s %d", sec.icon, sec.name, len(sec.items)))
 			buf.WriteString(hdr)
 			rendered++
@@ -606,7 +653,7 @@ func (v *StatusView) renderFilePane(height int) string {
 		if totalLines-listH > 0 {
 			pct = scrollStart * 100 / (totalLines - listH)
 		}
-		scrollHint = lipgloss.NewStyle().Foreground(t.TextSubtle).
+		scrollHint = v.sc.scrollHint.
 			Render(fmt.Sprintf(" %d%% ", pct))
 	}
 
@@ -623,8 +670,6 @@ func (v *StatusView) renderFilePane(height int) string {
 //	▸ M path/to/file.go     (selected, colored)
 //	  A new_file.go          (normal, colored)
 func (v *StatusView) renderFileItem(f git.FileStatus, selected bool, sectionColor lipgloss.Color, maxPath int) string {
-	t := v.styles.Theme
-
 	// Status indicator: single colored letter.
 	code := f.Worktree
 	if f.IsStaged {
@@ -651,12 +696,12 @@ func (v *StatusView) renderFileItem(f git.FileStatus, selected bool, sectionColo
 	}
 
 	indicatorStyled := lipgloss.NewStyle().Foreground(indicatorColor).Bold(true).Render(indicator)
-	pathStyled := lipgloss.NewStyle().Foreground(t.Text).Render(path)
+	pathStyled := v.sc.pathStyle.Render(path)
 
 	if selected {
-		cursor := lipgloss.NewStyle().Foreground(t.Primary).Bold(true).Render("▸")
+		cursor := v.sc.cursorStyle.Render("▸")
 		line := fmt.Sprintf("%s %s %s", cursor, indicatorStyled, pathStyled)
-		return lipgloss.NewStyle().Background(t.SurfaceHover).Render(" " + line)
+		return v.sc.selectedBg.Render(" " + line)
 	}
 
 	return fmt.Sprintf("   %s %s", indicatorStyled, pathStyled)
@@ -668,14 +713,13 @@ func (v *StatusView) renderDiffPane(height, width int) string {
 	t := v.styles.Theme
 
 	// Title.
-	titleStyle := lipgloss.NewStyle().Foreground(t.Primary).Bold(true)
-	title := titleStyle.Render("Preview")
+	title := v.sc.diffTitle.Render("Preview")
 	if v.diffPath != "" {
 		fname := filepath.Base(v.diffPath)
-		title += " " + lipgloss.NewStyle().Foreground(t.TextMuted).Render(fname)
+		title += " " + v.sc.countMuted.Render(fname)
 	}
 	if v.focus == focusDiffPane {
-		title += " " + lipgloss.NewStyle().Foreground(t.Primary).Faint(true).Render("●")
+		title += " " + v.sc.diffFocusDot.Render("●")
 	}
 
 	// Border style depends on focus.
@@ -692,25 +736,41 @@ func (v *StatusView) renderDiffPane(height, width int) string {
 	if innerH < 2 {
 		innerH = 2
 	}
-	v.diffVP.Width = innerW
 	v.diffVP.Height = innerH
+
+	// Reserve 1 column for the scrollbar when content is scrollable.
+	hasScrollbar := v.diffContent != "" && v.diffVP.TotalLineCount() > innerH
+	contentW := innerW
+	if hasScrollbar {
+		contentW = innerW - 1 // leave space for scrollbar column
+	}
+	v.diffVP.Width = contentW
 
 	var content string
 	if v.diffContent == "" {
-		content = lipgloss.NewStyle().
-			Foreground(t.TextSubtle).
+		content = v.sc.diffEmptyHint.
 			Width(innerW).Height(innerH).
 			Align(lipgloss.Center, lipgloss.Center).
 			Render("Select a file to preview diff")
 	} else {
-		content = v.diffVP.View()
+		vpView := v.diffVP.View()
+		if hasScrollbar {
+			sb := components.RenderScrollbar(
+				v.styles, innerH,
+				v.diffVP.TotalLineCount(), v.diffVP.Height,
+				v.diffVP.ScrollPercent(),
+			)
+			content = lipgloss.JoinHorizontal(lipgloss.Top, vpView, sb)
+		} else {
+			content = vpView
+		}
 	}
 
-	// Scroll indicator.
+	// Scroll percentage in title bar.
 	scrollInfo := ""
-	if v.diffVP.TotalLineCount() > v.diffVP.Height {
+	if hasScrollbar {
 		pct := v.diffVP.ScrollPercent() * 100
-		scrollInfo = lipgloss.NewStyle().Foreground(t.TextSubtle).
+		scrollInfo = v.sc.diffScrollPct.
 			Render(fmt.Sprintf("%.0f%%", pct))
 	}
 
@@ -731,34 +791,23 @@ func (v *StatusView) renderDiffPane(height, width int) string {
 // ── Command bar (always visible) ────────────────────────────────────────────
 
 func (v *StatusView) renderCommandBar() string {
-	t := v.styles.Theme
+	sep := v.sc.sepStyle.Render(" │ ")
 
-	keyStyle := lipgloss.NewStyle().Foreground(t.Primary).Bold(true)
-	descStyle := lipgloss.NewStyle().Foreground(t.TextMuted)
-	sepStyle := lipgloss.NewStyle().Foreground(t.Border)
-
-	sep := sepStyle.Render(" │ ")
-
-	// Context-aware: show different hints based on focus and selection.
+	// Show only action shortcuts — navigation (arrows) is self-evident.
 	var entries []string
 
 	if v.focus == focusDiffPane {
 		entries = []string{
-			keyStyle.Render("j/k") + descStyle.Render(" scroll"),
-			keyStyle.Render("tab") + descStyle.Render(" files"),
-			keyStyle.Render("esc") + descStyle.Render(" back"),
+			v.sc.keyStyle.Render("tab") + v.sc.descStyle.Render(" files"),
+			v.sc.keyStyle.Render("esc") + v.sc.descStyle.Render(" back"),
 		}
 	} else {
 		entries = []string{
-			keyStyle.Render("j/k") + descStyle.Render(" nav"),
-			keyStyle.Render("s") + descStyle.Render(" stage"),
-			keyStyle.Render("u") + descStyle.Render(" unstage"),
-			keyStyle.Render("S/U") + descStyle.Render(" all"),
-			keyStyle.Render("x") + descStyle.Render(" discard"),
-			keyStyle.Render("c") + descStyle.Render(" commit"),
-		}
-		if v.diffPaneWidth() > 0 {
-			entries = append(entries, keyStyle.Render("tab")+descStyle.Render(" diff"))
+			v.sc.keyStyle.Render("s") + v.sc.descStyle.Render(" stage"),
+			v.sc.keyStyle.Render("u") + v.sc.descStyle.Render(" unstage"),
+			v.sc.keyStyle.Render("S/U") + v.sc.descStyle.Render(" all"),
+			v.sc.keyStyle.Render("x") + v.sc.descStyle.Render(" discard"),
+			v.sc.keyStyle.Render("c") + v.sc.descStyle.Render(" commit"),
 		}
 	}
 
@@ -767,7 +816,7 @@ func (v *StatusView) renderCommandBar() string {
 	// Right-align position indicator.
 	posInfo := ""
 	if len(v.items) > 0 {
-		posInfo = descStyle.Render(fmt.Sprintf("%d/%d", v.cursor+1, len(v.items)))
+		posInfo = v.sc.descStyle.Render(fmt.Sprintf("%d/%d", v.cursor+1, len(v.items)))
 	}
 
 	leftW := lipgloss.Width(cmdLine)
@@ -780,11 +829,9 @@ func (v *StatusView) renderCommandBar() string {
 	fullLine := " " + cmdLine + strings.Repeat(" ", gap) + posInfo + " "
 
 	// Separator + command bar.
-	divider := lipgloss.NewStyle().Foreground(t.Border).Width(v.width).
+	divider := v.sc.dividerStyle.Width(v.width).
 		Render(strings.Repeat("─", v.width))
-	bar := lipgloss.NewStyle().
-		Foreground(t.TextMuted).
-		Background(t.Surface).
+	bar := v.sc.barBgStyle.
 		Width(v.width).
 		Render(fullLine)
 
@@ -794,20 +841,17 @@ func (v *StatusView) renderCommandBar() string {
 // ── Commit view ─────────────────────────────────────────────────────────────
 
 func (v *StatusView) viewCommit() string {
-	t := v.styles.Theme
-	title := lipgloss.NewStyle().Foreground(t.Primary).Bold(true).Render(" Commit")
+	title := v.sc.titlePrimary.Render(" Commit")
 	info := v.styles.Muted.Render(fmt.Sprintf(" %d file(s) staged", len(v.status.Staged)))
 	ta := " " + v.commitTA.View()
 
 	// Command bar for commit mode.
-	keyStyle := lipgloss.NewStyle().Foreground(t.Primary).Bold(true)
-	descStyle := lipgloss.NewStyle().Foreground(t.TextMuted)
-	hint := " " + keyStyle.Render("ctrl+s") + descStyle.Render(" commit") + "  " +
-		keyStyle.Render("esc") + descStyle.Render(" cancel")
+	hint := " " + v.sc.keyStyle.Render("ctrl+s") + v.sc.descStyle.Render(" commit") + "  " +
+		v.sc.keyStyle.Render("esc") + v.sc.descStyle.Render(" cancel")
 
-	divider := lipgloss.NewStyle().Foreground(t.Border).Width(v.width).
+	divider := v.sc.dividerStyle.Width(v.width).
 		Render(strings.Repeat("─", v.width))
-	cmdBar := lipgloss.NewStyle().Background(t.Surface).Width(v.width).Render(hint)
+	cmdBar := v.sc.barBgStyle.Width(v.width).Render(hint)
 
 	top := lipgloss.JoinVertical(lipgloss.Left, title, "", info, "", ta)
 	topH := v.height - 2 // reserve for command bar
@@ -944,7 +988,7 @@ func (v *StatusView) statusColor(code git.StatusCode, fallback lipgloss.Color) l
 
 func (v *StatusView) ShortHelp() []components.HelpEntry {
 	return []components.HelpEntry{
-		{Key: "j/k", Desc: "Navigate files"},
+		{Key: "↑/↓", Desc: "Navigate files"},
 		{Key: "s / S", Desc: "Stage file / all"},
 		{Key: "u / U", Desc: "Unstage file / all"},
 		{Key: "x", Desc: "Discard changes"},
@@ -953,3 +997,5 @@ func (v *StatusView) ShortHelp() []components.HelpEntry {
 		{Key: "d/enter", Desc: "Focus diff"},
 	}
 }
+
+func (v *StatusView) InputCapture() bool { return v.commitMode }

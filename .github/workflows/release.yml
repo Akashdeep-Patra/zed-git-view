@@ -68,6 +68,71 @@ jobs:
             echo "Checksums verified."
           fi
 
+  update-tap-readme:
+    name: Update Homebrew Tap README
+    needs: release
+    runs-on: ubuntu-latest
+    if: success()
+    steps:
+      - name: Generate and push tap README
+        env:
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          VERSION="${TAG#v}"
+
+          cat > README.md << 'HEADER'
+          # Homebrew Tap — Akashdeep-Patra
+
+          Homebrew formulae for tools by [@Akashdeep-Patra](https://github.com/Akashdeep-Patra).
+
+          ## Formulae
+
+          | Formula | Description | Version |
+          |---------|-------------|---------|
+          HEADER
+
+          echo "| [zgv](https://github.com/Akashdeep-Patra/zed-git-view) | A modern TUI Git client for Zed IDE | \`${VERSION}\` |" >> README.md
+
+          cat >> README.md << 'FOOTER'
+
+          ## Usage
+
+          ```bash
+          # Add this tap
+          brew tap Akashdeep-Patra/tap
+
+          # Install a formula
+          brew install Akashdeep-Patra/tap/zgv
+
+          # Or shorthand after tapping
+          brew install zgv
+          ```
+
+          ## Updating
+
+          ```bash
+          brew update
+          brew upgrade zgv
+          ```
+
+          Formulae are automatically updated on every new [release](https://github.com/Akashdeep-Patra/zed-git-view/releases) via [GoReleaser](https://goreleaser.com/).
+          FOOTER
+
+          # Clone the tap repo, commit the README, and push
+          git clone "https://x-access-token:${TAP_TOKEN}@github.com/Akashdeep-Patra/homebrew-tap.git" tap-repo
+          cp README.md tap-repo/README.md
+          cd tap-repo
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add README.md
+          if git diff --cached --quiet; then
+            echo "No README changes to commit."
+          else
+            git commit -m "docs: update README for zgv ${VERSION}"
+            git push
+          fi
+
   notify:
     name: Post-Release
     needs: [release, verify]
@@ -83,4 +148,4 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Artifacts" >> $GITHUB_STEP_SUMMARY
           echo "- GitHub Release: https://github.com/${{ github.repository }}/releases/tag/${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
-          echo "- Homebrew: \`brew install akashdeep/tap/zgv\`" >> $GITHUB_STEP_SUMMARY
+          echo "- Homebrew: \`brew install Akashdeep-Patra/tap/zgv\`" >> $GITHUB_STEP_SUMMARY

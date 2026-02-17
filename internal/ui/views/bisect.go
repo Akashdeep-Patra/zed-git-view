@@ -237,3 +237,5 @@ func (v *BisectView) ShortHelp() []components.HelpEntry {
 		{Key: "b", Desc: "Start bisect"},
 	}
 }
+
+func (v *BisectView) InputCapture() bool { return v.inputMode }

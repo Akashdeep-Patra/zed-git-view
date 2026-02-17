@@ -13,6 +13,9 @@ import (
 // bar all request overlapping data (Status, Head, AheadBehind, etc.)
 // within the same refresh cycle. Without caching, a single refresh event
 // could spawn 15+ git subprocesses. With caching, it spawns ~5.
+//
+// The cache is bounded by maxCacheEntries to prevent unbounded memory
+// growth across long-running sessions or multiple instances.
 type CachedService struct {
 	inner Service
 	ttl   time.Duration
@@ -20,6 +23,11 @@ type CachedService struct {
 	mu    sync.Mutex
 	cache map[string]cacheEntry
 }
+
+// maxCacheEntries caps the number of entries in the cache. When exceeded,
+// the entire cache is flushed (simple but effective — the TTL is short
+// so this only happens if something is wrong).
+const maxCacheEntries = 64
 
 type cacheEntry struct {
 	val    interface{}
@@ -61,6 +69,19 @@ func (c *CachedService) get(key string) (val interface{}, ok bool, err error) {
 
 func (c *CachedService) set(key string, val interface{}, err error) {
 	c.mu.Lock()
+	// Evict expired entries if the cache is getting large.
+	if len(c.cache) >= maxCacheEntries {
+		now := time.Now()
+		for k, e := range c.cache {
+			if now.After(e.expiry) {
+				delete(c.cache, k)
+			}
+		}
+		// If still over limit after eviction, flush entirely.
+		if len(c.cache) >= maxCacheEntries {
+			c.cache = make(map[string]cacheEntry, 16)
+		}
+	}
 	c.cache[key] = cacheEntry{val: val, err: err, expiry: time.Now().Add(c.ttl)}
 	c.mu.Unlock()
 }

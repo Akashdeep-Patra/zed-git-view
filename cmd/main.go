@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"runtime/debug"
 	"time"
 
 	"github.com/Akashdeep-Patra/zed-git-view/internal/app"
@@ -24,6 +25,34 @@ var (
 	commit  = "none"
 	date    = "unknown"
 )
+
+func init() {
+	// ── Multi-instance resource tuning ──────────────────────────────
+	//
+	// When users run 5+ zgv instances across terminals, each Go runtime
+	// defaults to GOMAXPROCS = NumCPU (e.g. 10 on an M1 Pro). That means
+	// 5 × 10 = 50 OS threads competing for 10 cores, causing context-switch
+	// overhead and latency spikes.
+	//
+	// A TUI app spends most of its time waiting for I/O (git subprocesses,
+	// fsnotify, terminal input). 2 OS threads is plenty for the actual Go
+	// work (render + message dispatch). The git subprocesses run externally
+	// and aren't affected by GOMAXPROCS.
+	//
+	// If the user explicitly sets GOMAXPROCS, we respect that.
+	if os.Getenv("GOMAXPROCS") == "" {
+		maxProcs := 2
+		if n := runtime.NumCPU(); n < maxProcs {
+			maxProcs = n
+		}
+		runtime.GOMAXPROCS(maxProcs)
+	}
+
+	// Limit the GC target to 50 MB. For a TUI that should rarely exceed
+	// 30 MB resident, this triggers the GC earlier and keeps RSS low —
+	// critical when 5+ instances share the machine.
+	debug.SetMemoryLimit(50 * 1024 * 1024) // 50 MiB
+}
 
 func main() {
 	rootCmd := buildRootCmd()

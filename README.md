@@ -2,6 +2,8 @@
 
 [![CI](https://github.com/Akashdeep-Patra/zed-git-view/actions/workflows/ci.yml/badge.svg)](https://github.com/Akashdeep-Patra/zed-git-view/actions/workflows/ci.yml)
 [![Release](https://github.com/Akashdeep-Patra/zed-git-view/actions/workflows/release.yml/badge.svg)](https://github.com/Akashdeep-Patra/zed-git-view/releases)
+[![GitHub Release](https://img.shields.io/github/v/release/Akashdeep-Patra/zed-git-view?label=latest)](https://github.com/Akashdeep-Patra/zed-git-view/releases/latest)
+[![Homebrew](https://img.shields.io/badge/homebrew-Akashdeep--Patra%2Ftap-orange)](https://github.com/Akashdeep-Patra/homebrew-tap)
 [![Go Report Card](https://goreportcard.com/badge/github.com/Akashdeep-Patra/zed-git-view)](https://goreportcard.com/report/github.com/Akashdeep-Patra/zed-git-view)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 

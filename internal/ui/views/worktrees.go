@@ -207,3 +207,5 @@ func (v *WorktreeView) ShortHelp() []components.HelpEntry {
 		{Key: "D", Desc: "Remove worktree"},
 	}
 }
+
+func (v *WorktreeView) InputCapture() bool { return false }

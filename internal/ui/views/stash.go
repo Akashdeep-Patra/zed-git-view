@@ -273,3 +273,5 @@ func (v *StashView) ShortHelp() []components.HelpEntry {
 		{Key: "d / enter", Desc: "Show stash diff"},
 	}
 }
+
+func (v *StashView) InputCapture() bool { return false }

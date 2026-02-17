@@ -159,3 +159,5 @@ func (v *ConflictView) ShortHelp() []components.HelpEntry {
 		{Key: "d / enter", Desc: "Show diff"},
 	}
 }
+
+func (v *ConflictView) InputCapture() bool { return false }

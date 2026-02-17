@@ -40,9 +40,10 @@ type Model struct {
 	tabLayout []tabHitZone
 }
 
-// tabHitZone maps a screen X range to a tab ID for mouse clicking.
+// tabHitZone maps a screen (row, X) range to a tab ID for mouse clicking.
 type tabHitZone struct {
 	ID    common.TabID
+	Row   int // 0-based row in the tab grid
 	Start int // inclusive X
 	End   int // exclusive X
 }
@@ -121,6 +122,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleMouse(msg)
 
 	case tea.KeyMsg:
+		// If the active view is capturing text input (e.g. commit message,
+		// branch name), forward ALL keys to it — don't intercept arrows
+		// or letters for tab switching.
+		if v, ok := m.views[m.activeTab]; ok && v.InputCapture() {
+			updated, cmd := v.Update(msg)
+			m.views[m.activeTab] = updated
+			if cmd != nil {
+				cmds = append(cmds, cmd)
+			}
+			return m, tea.Batch(cmds...)
+		}
+
 		switch {
 		case key.Matches(msg, m.keys.Quit):
 			return m, tea.Quit
@@ -274,7 +287,13 @@ func (m Model) View() string {
 }
 
 func (m Model) contentHeight() int {
-	return m.height - 4
+	tabRows := components.TabBarRows(m.buildTabInfos(), m.width)
+	// height - tabRows - statusBar(1) - bottomPadding(1)
+	h := m.height - tabRows - 2
+	if h < 1 {
+		h = 1
+	}
+	return h
 }
 
 func (m *Model) cycleTab(delta int) {
@@ -327,13 +346,13 @@ func (m Model) triggerRefresh() tea.Cmd {
 func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
-	// Tab bar occupies the first 2 rows (bar + separator).
-	const tabBarHeight = 2
+	// Tab bar height is dynamic (depends on row wrapping).
+	tabBarH := components.TabBarRows(m.buildTabInfos(), m.width)
 
 	switch msg.Button {
 	case tea.MouseButtonWheelUp, tea.MouseButtonWheelDown:
 		// Scroll wheel in tab bar area cycles tabs.
-		if msg.Y < tabBarHeight {
+		if msg.Y < tabBarH {
 			if msg.Button == tea.MouseButtonWheelUp {
 				m.cycleTab(-1)
 			} else {
@@ -341,7 +360,8 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 			}
 			return m, m.initActiveView()
 		}
-		// Forward scroll wheel to active view.
+		// Adjust Y to be relative to the content area, then forward.
+		msg.Y -= tabBarH
 		if v, ok := m.views[m.activeTab]; ok {
 			updated, cmd := v.Update(msg)
 			m.views[m.activeTab] = updated
@@ -357,14 +377,15 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		}
 
 		// Click in tab bar — switch tabs.
-		if msg.Y < tabBarHeight {
-			if tab, ok := m.tabAtX(msg.X); ok && tab != m.activeTab {
+		if msg.Y < tabBarH {
+			if tab, ok := m.tabAt(msg.X, msg.Y); ok && tab != m.activeTab {
 				return m, m.switchTo(tab)
 			}
 			return m, nil
 		}
 
-		// Click in content area — forward to active view.
+		// Adjust Y to be relative to the content area, then forward.
+		msg.Y -= tabBarH
 		if v, ok := m.views[m.activeTab]; ok {
 			updated, cmd := v.Update(msg)
 			m.views[m.activeTab] = updated
@@ -380,34 +401,51 @@ func (m Model) handleMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 
 // rebuildTabLayout recomputes tab hit zones from the rendered tab infos.
 // This runs during View() so it's always in sync with what's displayed.
+// Must replicate the mode selection and row-packing from components/tabs.go.
 func (m *Model) rebuildTabLayout(tabs []components.TabInfo) {
 	m.tabLayout = m.tabLayout[:0]
 
-	// Match the rendering logic in components/tabs.go:
-	// - 1 char left padding from the bar
-	// - Each tab: " icon Name " (1 pad + icon + space + name + 1 pad) + " shortcut"
-	// - Group separators: " │ " = 3 chars
-	offset := 1 // bar left padding
+	// Replicate bestMode logic: try full → short → icon.
+	type modeSpec struct {
+		nameLen int // -1 = full, 0 = icon-only, >0 = max rune count
+	}
+	modes := []modeSpec{{nameLen: -1}, {nameLen: 3}, {nameLen: 0}}
+
+	var bestRows int
+	var bestSpec modeSpec
+	for _, spec := range modes {
+		rows := m.countTabRows(tabs, spec.nameLen)
+		if rows <= 3 {
+			bestRows = rows
+			bestSpec = spec
+			break
+		}
+		bestRows = rows
+		bestSpec = spec
+	}
+	_ = bestRows
+
+	// Pack tabs into rows using the chosen mode.
+	row := 0
+	col := 1 // left padding
 	prevGroup := ""
 
 	for _, tab := range tabs {
-		if prevGroup != "" && tab.Group != prevGroup {
-			offset += 3 // group separator " │ "
+		tw := m.tabHitWidth(tab, bestSpec.nameLen)
+
+		sepW := 0
+		if prevGroup != "" && tab.Group != prevGroup && col > 1 {
+			sepW = 3
 		}
-		prevGroup = tab.Group
 
-		// Tab pill: padding(0,1) → 1 left + content + 1 right.
-		// Content: "icon space name" = len(icon) + 1 + len(name)
-		iconW := lipgloss.Width(tab.Icon)
-		pillContentW := iconW + 1 + len(tab.Name)
-		pillW := pillContentW + 2 // +2 for Padding(0,1) on each side
+		if col+sepW+tw > m.width && col > 1 {
+			row++
+			col = 1
+			sepW = 0
+		}
 
-		// Shortcut: " s" = 2 chars
-		shortcutW := 1 + len(tab.Shortcut)
+		col += sepW
 
-		totalW := pillW + shortcutW
-
-		// Find which TabID this corresponds to.
 		var tabID common.TabID
 		for _, t := range common.AllTabs {
 			if t.Name == tab.Name {
@@ -418,18 +456,73 @@ func (m *Model) rebuildTabLayout(tabs []components.TabInfo) {
 
 		m.tabLayout = append(m.tabLayout, tabHitZone{
 			ID:    tabID,
-			Start: offset,
-			End:   offset + totalW,
+			Row:   row,
+			Start: col,
+			End:   col + tw,
 		})
 
-		offset += totalW
+		col += tw
+		prevGroup = tab.Group
 	}
 }
 
-// tabAtX determines which tab was clicked given an X coordinate.
-func (m Model) tabAtX(x int) (common.TabID, bool) {
+// safeIconWidth mirrors the conservative icon width used in tabs.go.
+func safeIconWidth(icon string) int {
+	w := 0
+	for _, r := range icon {
+		if r < 128 {
+			w++
+		} else {
+			w += 2
+		}
+	}
+	return w
+}
+
+// tabHitWidth computes the hit zone width for a tab with the given name limit.
+// nameLen: -1 = full name, 0 = icon only, >0 = max runes.
+func (m Model) tabHitWidth(tab components.TabInfo, nameLen int) int {
+	iw := safeIconWidth(tab.Icon)
+	switch {
+	case nameLen < 0:
+		return 1 + iw + 1 + len(tab.Name) + 1
+	case nameLen == 0:
+		return 1 + iw + 1
+	default:
+		nl := len([]rune(tab.Name))
+		if nl > nameLen {
+			nl = nameLen
+		}
+		return 1 + iw + 1 + nl + 1
+	}
+}
+
+// countTabRows counts how many rows tabs would occupy with the given nameLen.
+func (m Model) countTabRows(tabs []components.TabInfo, nameLen int) int {
+	rows := 1
+	col := 1
+	prevGroup := ""
+	for _, tab := range tabs {
+		tw := m.tabHitWidth(tab, nameLen)
+		sepW := 0
+		if prevGroup != "" && tab.Group != prevGroup && col > 1 {
+			sepW = 3
+		}
+		if col+sepW+tw > m.width && col > 1 {
+			rows++
+			col = 1
+			sepW = 0
+		}
+		col += sepW + tw
+		prevGroup = tab.Group
+	}
+	return rows
+}
+
+// tabAt determines which tab was clicked given screen X and Y coordinates.
+func (m Model) tabAt(x, y int) (common.TabID, bool) {
 	for _, zone := range m.tabLayout {
-		if x >= zone.Start && x < zone.End {
+		if zone.Row == y && x >= zone.Start && x < zone.End {
 			return zone.ID, true
 		}
 	}

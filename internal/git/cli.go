@@ -15,14 +15,43 @@ import (
 // ErrNotARepo is returned when the path is not inside a Git repository.
 var ErrNotARepo = errors.New("not a git repository")
 
-// cmdTimeout is the maximum duration any single git command may run.
-// Prevents hangs on huge repos or network operations.
-const cmdTimeout = 30 * time.Second
+// cmdTimeoutRead is the max duration for read-only git commands (status,
+// diff, log, etc.). Reads should be fast even on large repos; if they
+// exceed this, something is wrong (NFS stall, lock contention).
+const cmdTimeoutRead = 10 * time.Second
+
+// cmdTimeoutWrite is the max duration for write commands (add, commit, etc.).
+// Slightly longer because index updates on large repos can take a moment.
+const cmdTimeoutWrite = 30 * time.Second
+
+// cmdTimeoutNetwork is the max duration for network commands (fetch, push, pull).
+// These depend on server speed and should be generous.
+const cmdTimeoutNetwork = 120 * time.Second
+
+// maxConcurrentGitProcs limits the number of git subprocesses a single
+// instance may run concurrently. This is critical for multi-instance
+// scenarios: without a limit, N instances × M concurrent commands
+// overwhelms the machine. A semaphore of 4 allows enough parallelism
+// for a refresh cycle (status + head + aheadBehind + diff) while
+// preventing runaway process storms.
+var gitSemaphore = make(chan struct{}, 4)
+
+func acquireGitSemaphore(ctx context.Context) error {
+	select {
+	case gitSemaphore <- struct{}{}:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func releaseGitSemaphore() {
+	<-gitSemaphore
+}
 
 // CLIService implements Service by shelling out to the git CLI.
 // Optimised for large monorepos:
-//   - GIT_OPTIONAL_LOCKS=0 on all read commands (no lock contention)
-//   - --no-optional-locks on all read commands
+//   - GIT_OPTIONAL_LOCKS=0 env var on all read commands (no lock contention)
 //   - Context-based timeouts prevent hangs
 //   - Stdout/Stderr separated — stderr noise doesn't corrupt output
 type CLIService struct {
@@ -39,11 +68,11 @@ func NewCLIService(path string) (*CLIService, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolving path: %w", err)
 	}
-	topLevel, err := runGit(abs, nil, "rev-parse", "--show-toplevel")
+	topLevel, err := runGit(abs, nil, cmdTimeoutRead, "rev-parse", "--show-toplevel")
 	if err != nil {
 		return nil, ErrNotARepo
 	}
-	gitDir, err := runGit(abs, nil, "rev-parse", "--git-dir")
+	gitDir, err := runGit(abs, nil, cmdTimeoutRead, "rev-parse", "--git-dir")
 	if err != nil {
 		return nil, fmt.Errorf("finding .git directory: %w", err)
 	}
@@ -67,21 +96,35 @@ func (s *CLIService) GitDir() string { return s.gitDir }
 // which is critical in large repos where lock contention stalls readers.
 var readEnv = []string{"GIT_OPTIONAL_LOCKS=0"}
 
-// run executes a git command at the repo root with read-optimised env.
+// run executes a read-only git command at the repo root with read-optimised
+// env and a tight timeout.
 func (s *CLIService) run(args ...string) (string, error) {
-	return runGit(s.root, readEnv, args...)
+	return runGit(s.root, readEnv, cmdTimeoutRead, args...)
 }
 
 // runWrite executes a write git command (no optional-locks override).
 func (s *CLIService) runWrite(args ...string) (string, error) {
-	return runGit(s.root, nil, args...)
+	return runGit(s.root, nil, cmdTimeoutWrite, args...)
 }
 
-// runGit executes a git command with a context timeout.
-// Stdout and stderr are separated so stderr noise doesn't corrupt output.
-func runGit(dir string, extraEnv []string, args ...string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), cmdTimeout)
+// runNetwork executes a network git command (fetch/push/pull) with a
+// generous timeout.
+func (s *CLIService) runNetwork(args ...string) (string, error) {
+	return runGit(s.root, nil, cmdTimeoutNetwork, args...)
+}
+
+// runGit executes a git command with a context timeout and a bounded
+// concurrency semaphore. Stdout and stderr are separated so stderr noise
+// doesn't corrupt output.
+func runGit(dir string, extraEnv []string, timeout time.Duration, args ...string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
+
+	// Acquire the semaphore — blocks until a slot opens or ctx expires.
+	if err := acquireGitSemaphore(ctx); err != nil {
+		return "", fmt.Errorf("git %s: waiting for semaphore: %w", strings.Join(args, " "), err)
+	}
+	defer releaseGitSemaphore()
 
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = dir
@@ -126,9 +169,10 @@ func (s *CLIService) Head() (string, error) {
 
 // IsClean reports whether the worktree is clean.
 func (s *CLIService) IsClean() (bool, error) {
-	// Use --no-optional-locks and limit to 1 result — we only need to know if
-	// anything is dirty, not the full list. On 100k-file repos this is 10x faster.
-	out, err := s.run("status", "--porcelain", "--untracked-files=no", "--no-optional-locks")
+	// Limit to 1 result — we only need to know if anything is dirty, not the
+	// full list. On 100k-file repos this is 10x faster.
+	// GIT_OPTIONAL_LOCKS=0 is set via readEnv to avoid index.lock contention.
+	out, err := s.run("status", "--porcelain", "--untracked-files=no")
 	if err != nil {
 		return false, err
 	}
@@ -182,12 +226,12 @@ func (s *CLIService) Upstream() string {
 
 // Status returns the current working tree status.
 func (s *CLIService) Status() (*StatusResult, error) {
-	// --no-optional-locks: don't acquire index.lock for reads.
 	// --porcelain=v1 -z: machine-parseable, NUL-delimited.
 	// -uno would skip untracked (fast), but we need them. Use -unormal
 	// to only scan one level deep for untracked files in large repos.
+	// GIT_OPTIONAL_LOCKS=0 is set via readEnv to avoid index.lock contention.
 	out, err := s.run("status", "--porcelain=v1", "-z",
-		"--no-optional-locks", "--untracked-files=normal")
+		"--untracked-files=normal")
 	if err != nil {
 		return nil, fmt.Errorf("getting status: %w", err)
 	}
@@ -239,7 +283,7 @@ func (s *CLIService) CommitAmend(message string) error {
 func (s *CLIService) Log(limit int, args ...string) ([]Commit, error) {
 	cmdArgs := []string{
 		"log", fmt.Sprintf("--max-count=%d", limit),
-		"--no-optional-locks", LogFormatFlag(),
+		LogFormatFlag(),
 	}
 	cmdArgs = append(cmdArgs, args...)
 	out, err := s.run(cmdArgs...)
@@ -256,7 +300,6 @@ func (s *CLIService) LogGraph(limit int) ([]GraphEntry, error) {
 	out, err := s.run("log",
 		fmt.Sprintf("--max-count=%d", limit),
 		"--graph", "--all",
-		"--no-optional-locks",
 		LogFormatFlag())
 	if err != nil {
 		return nil, fmt.Errorf("getting log graph: %w", err)
@@ -271,18 +314,27 @@ func (s *CLIService) Show(hash string) (*Commit, string, error) {
 		return nil, "", fmt.Errorf("showing commit %s: %w", hash, err)
 	}
 	// --stat is cheaper than --patch for initial display.
-	diff, err := s.run("show", "--format=", "--patch", "--no-optional-locks", hash)
+	diff, err := s.run("show", "--format=", "--patch", hash)
 	if err != nil {
 		return &commits[0], "", nil
+	}
+	if len(diff) > maxDiffBytes {
+		diff = diff[:maxDiffBytes] + "\n\n... (diff truncated — exceeds 512 KB) ...\n"
 	}
 	return &commits[0], diff, nil
 }
 
 // ── Diff ────────────────────────────────────────────────────────────────────
 
+// maxDiffBytes is the maximum size of diff output we'll keep in memory.
+// For multi-instance scenarios, this prevents one huge diff from bloating
+// the process. 512 KB is enough for any reasonable diff; larger ones are
+// truncated with a notice.
+const maxDiffBytes = 512 * 1024
+
 // Diff returns the diff for a path.
 func (s *CLIService) Diff(staged bool, path string) (string, error) {
-	args := []string{"diff", "--color=never", "--no-optional-locks", "--no-ext-diff"}
+	args := []string{"diff", "--color=never", "--no-ext-diff"}
 	if staged {
 		args = append(args, "--cached")
 	}
@@ -293,14 +345,20 @@ func (s *CLIService) Diff(staged bool, path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if len(out) > maxDiffBytes {
+		return out[:maxDiffBytes] + "\n\n... (diff truncated — exceeds 512 KB) ...\n", nil
+	}
 	return out, nil
 }
 
 // DiffRange returns the diff between two refs.
 func (s *CLIService) DiffRange(from, to string) (string, error) {
-	out, err := s.run("diff", "--color=never", "--no-optional-locks", "--no-ext-diff", from+".."+to)
+	out, err := s.run("diff", "--color=never", "--no-ext-diff", from+".."+to)
 	if err != nil {
 		return "", err
+	}
+	if len(out) > maxDiffBytes {
+		return out[:maxDiffBytes] + "\n\n... (diff truncated — exceeds 512 KB) ...\n", nil
 	}
 	return out, nil
 }
@@ -410,13 +468,13 @@ func (s *CLIService) Remotes() ([]Remote, error) {
 
 // Fetch fetches from the given remote.
 func (s *CLIService) Fetch(remote string) error {
-	_, err := s.runWrite("fetch", remote)
+	_, err := s.runNetwork("fetch", remote)
 	return err
 }
 
 // Pull pulls from the given remote and branch.
 func (s *CLIService) Pull(remote, branch string) error {
-	_, err := s.runWrite("pull", remote, branch)
+	_, err := s.runNetwork("pull", remote, branch)
 	return err
 }
 
@@ -426,7 +484,7 @@ func (s *CLIService) Push(remote, branch string, force bool) error {
 	if force {
 		args = append(args, "--force-with-lease")
 	}
-	_, err := s.runWrite(args...)
+	_, err := s.runNetwork(args...)
 	return err
 }
 
@@ -497,7 +555,7 @@ func (s *CLIService) BisectLog() (string, error) {
 
 // ConflictFiles returns paths with merge conflicts.
 func (s *CLIService) ConflictFiles() ([]string, error) {
-	out, err := s.run("diff", "--name-only", "--diff-filter=U", "--no-optional-locks")
+	out, err := s.run("diff", "--name-only", "--diff-filter=U")
 	if err != nil {
 		return nil, err
 	}

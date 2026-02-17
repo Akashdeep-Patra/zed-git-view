@@ -314,3 +314,5 @@ func (v *BranchView) ShortHelp() []components.HelpEntry {
 		{Key: "m", Desc: "Merge into current"},
 	}
 }
+
+func (v *BranchView) InputCapture() bool { return v.inputMode }

@@ -25,6 +25,7 @@ func (v *PlaceholderView) Init() tea.Cmd                           { return nil 
 func (v *PlaceholderView) Update(_ tea.Msg) (common.View, tea.Cmd) { return v, nil }
 func (v *PlaceholderView) SetSize(w, h int)                        { v.width = w; v.height = h }
 func (v *PlaceholderView) ShortHelp() []components.HelpEntry       { return nil }
+func (v *PlaceholderView) InputCapture() bool                      { return false }
 
 func (v *PlaceholderView) View() string {
 	msg := lipgloss.NewStyle().Foreground(v.styles.Theme.TextMuted).

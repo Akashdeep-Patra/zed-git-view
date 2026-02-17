@@ -1,6 +1,8 @@
 # Binaries
 /bin/
+/build/
 /dist/
+/tmp/
 zgv
 zed-git-view
 *.exe
@@ -34,3 +36,9 @@ vendor/
 
 # Debug
 __debug_bin*
+
+# act (local CI runner)
+.actrc
+
+# Taskfile cache
+.task/

@@ -156,3 +156,5 @@ func (v *RebaseView) ShortHelp() []components.HelpEntry {
 		{Key: "i", Desc: "Start interactive rebase"},
 	}
 }
+
+func (v *RebaseView) InputCapture() bool { return v.inputMode }

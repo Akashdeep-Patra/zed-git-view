@@ -212,3 +212,5 @@ func (v *RemoteView) ShortHelp() []components.HelpEntry {
 		{Key: "P", Desc: "Push"},
 	}
 }
+
+func (v *RemoteView) InputCapture() bool { return false }

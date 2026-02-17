@@ -318,10 +318,12 @@ func (v *LogView) renderCommitDetail(c *git.Commit, diff string) string {
 
 func (v *LogView) ShortHelp() []components.HelpEntry {
 	return []components.HelpEntry{
-		{Key: "j/k", Desc: "Navigate commits"},
+		{Key: "↑/↓", Desc: "Navigate commits"},
 		{Key: "enter / d", Desc: "Show commit detail"},
 		{Key: "y", Desc: "Copy commit hash"},
-		{Key: "g/G", Desc: "Top / bottom"},
+		{Key: "home/end", Desc: "Top / bottom"},
 		{Key: "esc", Desc: "Close detail"},
 	}
 }
+
+func (v *LogView) InputCapture() bool { return false }
