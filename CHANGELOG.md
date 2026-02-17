@@ -8,6 +8,18 @@ Each `v*` release syncs the GitHub release notes into this file.
 
 <!-- releases:start -->
 
+## [v0.1.9] - 2026-02-17
+
+Source: [GitHub Release](https://github.com/Akashdeep-Patra/zed-git-view/releases/tag/v0.1.9)
+
+## Changelog
+### New Features
+* 60d53d67604a37dcced029517b106aa881fe01b2: feat: add vscode and cursor workspace integration (@Akashdeep-Patra)
+### Bug Fixes
+* ba15176a19fef24e763dd8cc898fb8b179b82521: fix: preserve existing homebrew tap README entries (@Akashdeep-Patra)
+### Documentation
+* 32a27dc4d02338f50f0936d966658152ffe28550: docs: sync changelog for v0.1.8 (@github-actions[bot])
+
 ## [v0.1.8] - 2026-02-17
 
 Source: [GitHub Release](https://github.com/Akashdeep-Patra/zed-git-view/releases/tag/v0.1.8)
