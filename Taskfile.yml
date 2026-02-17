@@ -1,0 +1,125 @@
+version: "3"
+
+vars:
+  BINARY_NAME: zgv
+  BUILD_DIR: bin
+  MAIN_PKG: ./cmd
+  VERSION:
+    sh: git describe --tags --always --dirty 2>/dev/null || echo "dev"
+  COMMIT:
+    sh: git rev-parse --short HEAD 2>/dev/null || echo "none"
+  DATE:
+    sh: date -u '+%Y-%m-%dT%H:%M:%SZ'
+  LDFLAGS: -s -w -X main.version={{.VERSION}} -X main.commit={{.COMMIT}} -X main.date={{.DATE}}
+
+tasks:
+  default:
+    desc: Show available tasks
+    cmds:
+      - task --list-all
+
+  build:
+    desc: Build the binary with version metadata
+    cmds:
+      - go build -ldflags="{{.LDFLAGS}}" -o {{.BUILD_DIR}}/{{.BINARY_NAME}} {{.MAIN_PKG}}
+    sources:
+      - "**/*.go"
+      - go.mod
+      - go.sum
+    generates:
+      - "{{.BUILD_DIR}}/{{.BINARY_NAME}}"
+
+  run:
+    desc: Build and run
+    deps: [build]
+    cmds:
+      - ./{{.BUILD_DIR}}/{{.BINARY_NAME}} {{.CLI_ARGS}}
+
+  dev:
+    desc: Run with go run (faster iteration)
+    cmds:
+      - go run -ldflags="{{.LDFLAGS}}" {{.MAIN_PKG}} {{.CLI_ARGS}}
+
+  test:
+    desc: Run tests with race detector
+    cmds:
+      - go test -race -coverprofile=coverage.txt ./...
+
+  test:short:
+    desc: Run short tests only
+    cmds:
+      - go test -short ./...
+
+  coverage:
+    desc: Generate and open HTML coverage report
+    deps: [test]
+    cmds:
+      - go tool cover -html=coverage.txt -o coverage.html
+      - open coverage.html
+
+  lint:
+    desc: Run golangci-lint
+    cmds:
+      - golangci-lint run ./...
+
+  lint:fix:
+    desc: Run golangci-lint with auto-fix
+    cmds:
+      - golangci-lint run --fix ./...
+
+  fmt:
+    desc: Format code with gofumpt
+    cmds:
+      - gofumpt -w .
+
+  vet:
+    desc: Run go vet
+    cmds:
+      - go vet ./...
+
+  tidy:
+    desc: Tidy go modules
+    cmds:
+      - go mod tidy
+
+  clean:
+    desc: Remove build artifacts
+    cmds:
+      - rm -rf {{.BUILD_DIR}} dist coverage.txt coverage.html
+
+  install:
+    desc: Install binary to GOPATH/bin with version metadata
+    cmds:
+      - go install -ldflags="{{.LDFLAGS}}" {{.MAIN_PKG}}
+
+  snapshot:
+    desc: Build a snapshot release locally (no publish)
+    cmds:
+      - goreleaser build --snapshot --clean
+
+  release:dry:
+    desc: Dry-run a full release (no publish)
+    cmds:
+      - goreleaser release --snapshot --clean
+
+  check:
+    desc: Run all checks (fmt, vet, lint, test)
+    cmds:
+      - task: fmt
+      - task: vet
+      - task: lint
+      - task: test
+
+  version:
+    desc: Print the current version
+    cmds:
+      - echo "{{.VERSION}} ({{.COMMIT}})"
+
+  tag:
+    desc: "Create and push a release tag: task tag -- v0.2.0"
+    cmds:
+      - git tag -a {{.CLI_ARGS}} -m "Release {{.CLI_ARGS}}"
+      - git push origin {{.CLI_ARGS}}
+    preconditions:
+      - sh: test -n "{{.CLI_ARGS}}"
+        msg: "Usage: task tag -- v0.2.0"

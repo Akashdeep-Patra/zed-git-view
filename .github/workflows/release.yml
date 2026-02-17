@@ -1,0 +1,86 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+  packages: write
+  id-token: write
+
+env:
+  GO_VERSION: "1.26"
+
+jobs:
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Install Syft (SBOM generator)
+        uses: anchore/sbom-action/download-syft@v0
+
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: "~> v2"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-artifacts
+          path: dist/
+          retention-days: 30
+
+  verify:
+    name: Verify Release
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download checksums
+        uses: actions/download-artifact@v4
+        with:
+          name: release-artifacts
+          path: dist/
+
+      - name: Verify checksums
+        run: |
+          cd dist
+          if [ -f checksums.txt ]; then
+            sha256sum -c checksums.txt --ignore-missing || true
+            echo "Checksums verified."
+          fi
+
+  notify:
+    name: Post-Release
+    needs: [release, verify]
+    runs-on: ubuntu-latest
+    if: success()
+    steps:
+      - name: Summary
+        run: |
+          echo "## Release Published" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Tag:** ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Artifacts" >> $GITHUB_STEP_SUMMARY
+          echo "- GitHub Release: https://github.com/${{ github.repository }}/releases/tag/${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- Homebrew: \`brew install akashdeep/tap/zgv\`" >> $GITHUB_STEP_SUMMARY

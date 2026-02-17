@@ -1,0 +1,181 @@
+version: 2
+
+project_name: zgv
+
+before:
+  hooks:
+    - go mod tidy
+    - go generate ./...
+    - mkdir -p completions
+    - sh -c "go run ./cmd completion bash > completions/zgv.bash"
+    - sh -c "go run ./cmd completion zsh > completions/zgv.zsh"
+    - sh -c "go run ./cmd completion fish > completions/zgv.fish"
+
+builds:
+  - id: zgv
+    main: ./cmd
+    binary: zgv
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+      - freebsd
+    goarch:
+      - amd64
+      - arm64
+      - arm
+    goarm:
+      - "7"
+    ignore:
+      - goos: windows
+        goarch: arm
+      - goos: freebsd
+        goarch: arm
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.ShortCommit}}
+      - -X main.date={{.Date}}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: default
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- .Version }}_
+      {{- .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "arm64" }}aarch64
+      {{- else }}{{ .Arch }}{{ end }}
+    files:
+      - LICENSE
+      - README.md
+      - CHANGELOG.md
+      - completions/*
+
+checksum:
+  name_template: "checksums.txt"
+  algorithm: sha256
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  use: github
+  groups:
+    - title: "New Features"
+      regexp: '^.*?feat(\([[:word:]]+\))??!?:.+$'
+      order: 0
+    - title: "Bug Fixes"
+      regexp: '^.*?fix(\([[:word:]]+\))??!?:.+$'
+      order: 1
+    - title: "Performance"
+      regexp: '^.*?perf(\([[:word:]]+\))??!?:.+$'
+      order: 2
+    - title: "Documentation"
+      regexp: '^.*?docs(\([[:word:]]+\))??!?:.+$'
+      order: 3
+    - title: "Other"
+      order: 999
+  filters:
+    exclude:
+      - "^test:"
+      - "^chore:"
+      - "^ci:"
+      - "^style:"
+      - "Merge pull request"
+      - "Merge branch"
+
+release:
+  github:
+    owner: Akashdeep-Patra
+    name: zed-git-view
+  draft: false
+  prerelease: auto
+  mode: replace
+  header: |
+    ## zgv {{ .Version }}
+
+    {{ if .Prerelease }}**This is a pre-release.**{{ end }}
+
+    See the [CHANGELOG](https://github.com/Akashdeep-Patra/zed-git-view/blob/main/CHANGELOG.md) for full details.
+  footer: |
+    ---
+    **Full Changelog**: https://github.com/Akashdeep-Patra/zed-git-view/compare/{{ .PreviousTag }}...{{ .Tag }}
+
+    ### Installation
+
+    ```bash
+    # macOS / Linux (Homebrew)
+    brew install Akashdeep-Patra/tap/zgv
+
+    # Go install
+    go install github.com/Akashdeep-Patra/zed-git-view/cmd@{{ .Tag }}
+
+    # Manual download
+    # Download the archive for your OS/arch from the assets below, extract, and place zgv in your PATH.
+    ```
+  name_template: "v{{ .Version }}"
+
+brews:
+  - repository:
+      owner: Akashdeep-Patra
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    directory: .
+    homepage: https://github.com/Akashdeep-Patra/zed-git-view
+    description: "A modern TUI Git client for Zed IDE"
+    license: MIT
+    dependencies:
+      - name: git
+    install: |
+      bin.install "zgv"
+
+      bash_completion.install "completions/zgv.bash" => "zgv"
+      zsh_completion.install "completions/zgv.zsh" => "_zgv"
+      fish_completion.install "completions/zgv.fish"
+    test: |
+      assert_match version.to_s, shell_output("#{bin}/zgv version")
+    caveats: |
+      Shell completions have been installed.
+
+      To use zgv inside Zed IDE, open the integrated terminal and run:
+        zgv
+    skip_upload: auto
+
+nfpms:
+  - id: packages
+    package_name: zgv
+    vendor: Akashdeep
+    homepage: https://github.com/Akashdeep-Patra/zed-git-view
+    maintainer: Akashdeep
+    description: "A modern TUI Git client for Zed IDE"
+    license: MIT
+    formats:
+      - deb
+      - rpm
+      - apk
+    bindir: /usr/bin
+
+sboms:
+  - artifacts: archive
+
+signs:
+  - cmd: cosign
+    artifacts: checksum
+    output: true
+    args:
+      - sign-blob
+      - "--output-certificate=${certificate}"
+      - "--output-signature=${signature}"
+      - "${artifact}"
+      - "--yes"
