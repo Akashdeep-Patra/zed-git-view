@@ -7,7 +7,7 @@ started and the standards we follow.
 
 ### Prerequisites
 
-- **Go 1.22+** ([install](https://go.dev/dl/))
+- **Go 1.25+** ([install](https://go.dev/dl/))
 - **Task** (optional) - `brew install go-task` or [taskfile.dev](https://taskfile.dev)
 - **golangci-lint** (optional) - `brew install golangci-lint`
 
@@ -32,6 +32,17 @@ task run
 # Run against a specific repo
 task run -- --path /some/repo
 ```
+
+### Running from Zed
+
+This repository includes project-level Zed tasks in `.zed/tasks.json`.
+
+1. Open this repository in Zed.
+2. Run `task: spawn` from the command palette.
+3. Use:
+   - `zgv: open (current worktree)` to launch zgv for this project
+   - `zgv: dev hot reload` for iterative development
+   - `zgv: check (fmt+vet+lint+test)` before opening a PR
 
 ## Development Workflow
 
@@ -73,6 +84,8 @@ chore: bump bubbletea to v1.4.0
   `git.Service` interface.
 - **No import cycles.** Shared types live in `internal/common/`.
 - **Keep `Update()` and `View()` fast.** Offload work to `tea.Cmd` functions.
+- **Keep docs synchronized with runtime behavior.** If keybindings or commands
+  change, update `README.md` and `CONTRIBUTING.md` in the same PR.
 
 ### Style
 
@@ -87,6 +100,7 @@ chore: bump bubbletea to v1.4.0
 task test           # full test suite with race detector
 task test:short     # fast subset
 task coverage       # HTML coverage report
+task ci:local       # run CI jobs locally with act
 ```
 
 - Unit test parsers and git output handlers.
@@ -106,10 +120,14 @@ task coverage       # HTML coverage report
 
 Releases are automated via GitHub Actions + GoReleaser:
 
-1. Update `CHANGELOG.md` with the new version's changes.
-2. Create and push a semver tag: `git tag v0.2.0 && git push origin v0.2.0`.
-3. The release workflow builds binaries for all platforms and publishes a GitHub
-   Release with artifacts and checksums.
+1. Ensure your branch is clean and merged to `main`.
+2. Run one command: `task release -- major|minor|patch`.
+3. The release workflow builds binaries for all platforms, auto-generates release
+   changelog notes from commits, publishes a GitHub Release with artifacts, and
+   syncs those notes into `CHANGELOG.md` automatically.
+
+If a previous release attempt partially uploaded assets for a tag, delete and
+re-push the tag to force a clean run.
 
 ## Code of Conduct
 

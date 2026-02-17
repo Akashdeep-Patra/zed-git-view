@@ -133,9 +133,92 @@ jobs:
             git push
           fi
 
+  update-changelog:
+    name: Update CHANGELOG.md
+    needs: release
+    runs-on: ubuntu-latest
+    if: success()
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Update changelog from release notes
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          REPO: ${{ github.repository }}
+        run: |
+          BODY="$(gh release view "${TAG}" --repo "${REPO}" --json body --jq .body)"
+          DATE="$(gh release view "${TAG}" --repo "${REPO}" --json publishedAt --jq '.publishedAt[:10]')"
+          URL="$(gh release view "${TAG}" --repo "${REPO}" --json url --jq .url)"
+
+          export BODY DATE URL TAG
+          python3 <<'PY'
+          import os
+          import pathlib
+
+          path = pathlib.Path("CHANGELOG.md")
+          text = path.read_text(encoding="utf-8")
+
+          start_marker = "<!-- releases:start -->"
+          end_marker = "<!-- releases:end -->"
+
+          if start_marker not in text or end_marker not in text:
+              raise SystemExit("CHANGELOG markers not found")
+
+          tag = os.environ["TAG"]
+          date = os.environ["DATE"]
+          url = os.environ["URL"]
+          body = os.environ["BODY"].strip()
+
+          # Keep the changelog concise: store only the release changelog section
+          # from the generated notes when present.
+          if "## Changelog" in body:
+              body = "## Changelog\n" + body.split("## Changelog", 1)[1].strip()
+          if "\n---" in body:
+              body = body.split("\n---", 1)[0].rstrip()
+
+          entry = f"## [{tag}] - {date}\n\nSource: [GitHub Release]({url})\n\n{body}\n"
+
+          # Idempotency: do not insert if already present.
+          if f"## [{tag}] - {date}" in text:
+              raise SystemExit(0)
+
+          start_idx = text.index(start_marker) + len(start_marker)
+          end_idx = text.index(end_marker)
+          block = text[start_idx:end_idx].strip()
+
+          new_block = entry.strip()
+          if block:
+              new_block = new_block + "\n\n" + block
+
+          updated = (
+              text[:start_idx]
+              + "\n\n"
+              + new_block
+              + "\n"
+              + text[end_idx:]
+          )
+          path.write_text(updated, encoding="utf-8")
+          PY
+
+      - name: Commit and push changelog update
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add CHANGELOG.md
+          if git diff --cached --quiet; then
+            echo "No changelog changes to commit."
+          else
+            git commit -m "docs: sync changelog for ${{ github.ref_name }}"
+            git push origin main
+          fi
+
   notify:
     name: Post-Release
-    needs: [release, verify]
+    needs: [release, verify, update-changelog]
     runs-on: ubuntu-latest
     if: success()
     steps:

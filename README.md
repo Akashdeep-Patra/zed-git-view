@@ -11,18 +11,18 @@ A keyboard-first, terminal-based Git client built with Go and the [Charm](https:
 
 ## Features
 
-| View | Key | Description |
-|------|-----|-------------|
-| **Status** | `1` | Stage/unstage files, commit, discard changes, diff preview |
-| **Log** | `2` | Commit graph with ASCII art, commit detail panel |
-| **Diff** | `3` | Inline and side-by-side diff viewer with syntax colouring |
-| **Branches** | `4` | Create, switch, rename, delete, merge branches |
-| **Stash** | `5` | Save, pop, apply, drop stashes with diff preview |
-| **Remotes** | `6` | Fetch, pull, push with remote selection |
-| **Rebase** | `7` | Start interactive rebase, continue, abort |
-| **Conflicts** | `8` | View conflict files, mark resolved, show diff |
-| **Worktrees** | `9` | Add and remove linked working trees |
-| **Bisect** | `0` | Interactive binary search for bug-introducing commits |
+| View | Direct Shortcut | Description |
+|------|-----------------|-------------|
+| **Status** | `alt+s` | Stage/unstage files, commit, discard changes, diff preview |
+| **Log** | `alt+l` | Commit graph with ASCII art, commit detail panel |
+| **Diff** | `alt+d` | Inline and side-by-side diff viewer with syntax colouring |
+| **Branches** | `alt+b` | Create, switch, rename, delete, merge branches |
+| **Stash** | `alt+t` | Save, pop, apply, drop stashes with diff preview |
+| **Remotes** | `alt+m` | Fetch, pull, push with remote selection |
+| **Rebase** | `alt+e` | Start interactive rebase, continue, abort |
+| **Conflicts** | `alt+x` | View conflict files, mark resolved, show diff |
+| **Worktrees** | `alt+w` | Add and remove linked working trees |
+| **Bisect** | `alt+i` | Interactive binary search for bug-introducing commits |
 
 ## Installation
 
@@ -35,7 +35,7 @@ brew install Akashdeep-Patra/tap/zgv
 ### Go install
 
 ```bash
-# Requires Go 1.22+
+# Requires Go 1.25+
 go install github.com/Akashdeep-Patra/zed-git-view/cmd@latest
 ```
 
@@ -98,10 +98,14 @@ zgv completion bash   # also: zsh, fish, powershell
 
 | Key | Action |
 |-----|--------|
-| `1`-`9`, `0` | Switch to tab |
-| `tab` / `shift+tab` | Next / previous tab |
-| `j` / `k` | Navigate down / up |
-| `g` / `G` | Go to top / bottom |
+| `left` / `right` | Previous / next tab |
+| `h` / `l` | Previous / next tab (vim-style alias) |
+| `alt+s` / `alt+d` / `alt+l` / `alt+b` / `alt+m` / `alt+t` / `alt+e` / `alt+x` / `alt+w` / `alt+i` | Jump to specific tab |
+| `up` / `down` | Navigate up / down |
+| `home` / `end` | Go to top / bottom |
+| `pgup` / `pgdn` (`ctrl+u` / `ctrl+d`) | Page up / down |
+| `enter` | Confirm action |
+| `esc` | Back / close overlay |
 | `?` | Toggle help overlay |
 | `r` | Refresh data |
 | `q` / `ctrl+c` | Quit |
@@ -110,6 +114,7 @@ zgv completion bash   # also: zsh, fish, powershell
 
 | Key | Action |
 |-----|--------|
+| `tab` | Switch file list / diff pane focus |
 | `s` / `S` | Stage file / stage all |
 | `u` / `U` | Unstage file / unstage all |
 | `x` | Discard changes |
@@ -132,6 +137,37 @@ zgv completion bash   # also: zsh, fish, powershell
 | `R` | Rename branch |
 | `D` | Delete branch |
 | `m` | Merge into current |
+
+## Zed IDE Integration
+
+This project includes workspace-native Zed tasks in `.zed/tasks.json`.
+
+### Run zgv from Zed automatically
+
+1. Open this repository in Zed.
+2. Open command palette and run `task: spawn`.
+3. Run one of:
+   - `zgv: open (current worktree)`
+   - `zgv: dev hot reload`
+   - `zgv: check (fmt+vet+lint+test)`
+
+You can also bind a shortcut in your Zed keymap to run tasks directly:
+
+```json
+{
+  "context": "Workspace",
+  "bindings": {
+    "alt-g": ["task::Spawn", { "task_name": "zgv: open (current worktree)" }]
+  }
+}
+```
+
+### Notes
+
+- `task dev` uses `watchexec` to restart `go run ./cmd` when `.go` files change.
+- During runtime, `zgv` auto-refreshes from `.git` state changes via `fsnotify`.
+- For best behavior in monorepos, use `zgv: open (current worktree)` so the repo
+  path is always explicit (`$ZED_WORKTREE_ROOT`).
 
 ## Configuration
 
@@ -163,23 +199,36 @@ This project follows [Semantic Versioning](https://semver.org/).
 ### Creating a release
 
 ```bash
-# Update CHANGELOG.md, commit, then tag:
-git tag -a v0.2.0 -m "Release v0.2.0"
-git push origin v0.2.0
-
-# Or use the Taskfile shortcut:
-task tag -- v0.2.0
+# One command: runs checks, increments semver, tags, pushes
+task release -- patch   # v0.1.0 -> v0.1.1
+task release -- minor   # v0.1.0 -> v0.2.0
+task release -- major   # v0.1.0 -> v1.0.0
 ```
 
-Pushing a `v*` tag triggers the release workflow which:
-1. Runs all CI checks.
-2. Builds binaries for 6 platform/arch combos.
-3. Creates `.deb`, `.rpm`, `.apk` packages.
-4. Generates SHA-256 checksums.
-5. Signs artifacts with cosign (keyless, Sigstore).
-6. Generates an SBOM (Software Bill of Materials).
+What this does:
+1. Runs `task check` (fmt, vet, lint, test).
+2. Reads latest `v*` tag and computes the next semver based on `major|minor|patch`.
+3. Pushes the tag to origin.
+
+Pushing a `v*` tag then triggers the release workflow which:
+1. Builds multi-platform binaries and archives.
+2. Creates `.deb`, `.rpm`, `.apk` packages.
+3. Generates SHA-256 checksums.
+4. Signs artifacts with cosign (keyless, Sigstore).
+5. Generates SBOM artifacts.
+6. Auto-generates release changelog notes from commits.
 7. Publishes a GitHub Release with all artifacts.
-8. Updates the Homebrew formula.
+8. Updates the Homebrew formula and tap README.
+9. Syncs detailed release notes into `CHANGELOG.md`.
+
+If a release run is retried or a tag is re-pushed, GitHub can report
+`422 already_exists` during asset upload for files already present on the
+release. In that case, the safest recovery is:
+
+```bash
+git push origin :refs/tags/vX.Y.Z
+git push origin vX.Y.Z
+```
 
 ## Tech Stack
 
@@ -221,7 +270,7 @@ internal/
 .goreleaser.yml          Multi-platform build + package + publish config
 Taskfile.yml             Development task runner (build, test, lint, tag, etc.)
 .golangci.yml            Linter configuration
-CHANGELOG.md             Keep a Changelog format
+CHANGELOG.md             Auto-synced release history from GitHub release notes
 CONTRIBUTING.md          Contribution guidelines
 LICENSE                  MIT
 ```
@@ -234,14 +283,15 @@ brew install go-task
 
 # Common commands
 task build          # Build binary (with version metadata)
-task dev            # Run with go run
+task dev            # Hot reload via watchexec
 task test           # Run tests with race detector
 task lint           # Run golangci-lint
 task check          # fmt + vet + lint + test
 task snapshot       # GoReleaser snapshot (local, no publish)
 task release:dry    # Full release dry-run
+task ci:local       # Run CI jobs locally via act
 task version        # Print current version from git tags
-task tag -- v0.2.0  # Tag and push a release
+task release -- patch   # Check + auto-bump + tag + push
 ```
 
 ## Contributing

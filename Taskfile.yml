@@ -153,3 +153,55 @@ tasks:
     preconditions:
       - sh: test -n "{{.CLI_ARGS}}"
         msg: "Usage: task tag -- v0.2.0"
+
+  release:
+    desc: "Seamless release: task release -- major|minor|patch"
+    cmds:
+      - task: check
+      - |
+        LEVEL="{{.CLI_ARGS}}"
+        LAST_TAG="$(git tag --list 'v*' --sort=-version:refname | head -n1)"
+        if [ -z "${LAST_TAG}" ]; then
+          LAST_TAG="v0.0.0"
+        fi
+
+        BASE="${LAST_TAG#v}"
+        IFS=. read -r MAJOR MINOR PATCH <<EOF
+        ${BASE}
+        EOF
+
+        MAJOR="${MAJOR:-0}"
+        MINOR="${MINOR:-0}"
+        PATCH="${PATCH:-0}"
+
+        case "${LEVEL}" in
+          major)
+            MAJOR=$((MAJOR + 1))
+            MINOR=0
+            PATCH=0
+            ;;
+          minor)
+            MINOR=$((MINOR + 1))
+            PATCH=0
+            ;;
+          patch)
+            PATCH=$((PATCH + 1))
+            ;;
+        esac
+
+        NEXT_TAG="v${MAJOR}.${MINOR}.${PATCH}"
+        if git rev-parse -q --verify "refs/tags/${NEXT_TAG}" >/dev/null 2>&1; then
+          echo "Tag already exists locally: ${NEXT_TAG}"
+          exit 1
+        fi
+
+        echo "Releasing ${NEXT_TAG} (from ${LAST_TAG}, level=${LEVEL})"
+        git tag -a "${NEXT_TAG}" -m "Release ${NEXT_TAG}"
+        git push origin "${NEXT_TAG}"
+    preconditions:
+      - sh: test -n "{{.CLI_ARGS}}"
+        msg: "Usage: task release -- major|minor|patch"
+      - sh: 'printf "%s" "{{.CLI_ARGS}}" | rg -q "^(major|minor|patch)$"'
+        msg: "Release level must be one of: major, minor, patch"
+      - sh: '[ -z "$(git status --porcelain)" ]'
+        msg: "Working tree must be clean before release"

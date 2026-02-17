@@ -107,7 +107,7 @@ release:
 
     {{ if .Prerelease }}**This is a pre-release.**{{ end }}
 
-    See the [CHANGELOG](https://github.com/Akashdeep-Patra/zed-git-view/blob/main/CHANGELOG.md) for full details.
+    Release notes below are generated automatically from commit history.
   footer: |
     ---
     **Full Changelog**: https://github.com/Akashdeep-Patra/zed-git-view/compare/{{ .PreviousTag }}...{{ .Tag }}
